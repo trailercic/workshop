@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Delovi // Radionica</title>
+<title>Parts // Workshop</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
 
@@ -163,7 +163,7 @@
   <div class="topbar">
     <div class="brand">
       <div class="mark">WO-SYS</div>
-      <h1>Deli<span>ce</span> / Radionica</h1>
+      <h1>Parts<span>//</span> Workshop</h1>
     </div>
     <div class="topbar-right" id="topbar-right"></div>
   </div>
@@ -171,16 +171,16 @@
   <div id="view-login" class="view active">
     <div class="login-wrap">
       <div class="login-card">
-        <div class="label">Prijava radnika</div>
+        <div class="label">Worker Login</div>
         <div class="field">
-          <label for="l-username">Korisničko ime</label>
+          <label for="l-username">Username</label>
           <input id="l-username" type="text" autocomplete="username">
         </div>
         <div class="field">
-          <label for="l-password">Lozinka</label>
+          <label for="l-password">Password</label>
           <input id="l-password" type="password" autocomplete="current-password">
         </div>
-        <button class="login-btn" id="login-btn">Prijavi se</button>
+        <button class="login-btn" id="login-btn">Log In</button>
         <div class="login-error" id="login-error"></div>
         <div class="login-hint" id="login-hint"></div>
       </div>
@@ -192,49 +192,49 @@
       <div class="ticket-form">
         <div class="ticket-head">
           <div>
-            <div class="label">Radni nalog</div>
+            <div class="label">Work Order</div>
             <div class="num" id="next-num">#-----</div>
           </div>
           <div class="label" id="today-date"></div>
         </div>
 
         <div class="field">
-          <label for="f-part">Naziv dela</label>
-          <input id="f-part" type="text" placeholder="npr. Kočiona pločica prednja" autocomplete="off">
+          <label for="f-part">Part Name</label>
+          <input id="f-part" type="text" placeholder="e.g. Front brake pad" autocomplete="off">
         </div>
 
         <div class="row-2">
           <div class="field">
-            <label for="f-code">Šifra / broj dela (opciono)</label>
-            <input id="f-code" type="text" placeholder="npr. BR-2210" autocomplete="off">
+            <label for="f-code">Part code / number (optional)</label>
+            <input id="f-code" type="text" placeholder="e.g. BR-2210" autocomplete="off">
           </div>
           <div class="field">
-            <label for="f-qty">Količina</label>
+            <label for="f-qty">Quantity</label>
             <input id="f-qty" type="number" min="1" value="1">
           </div>
         </div>
 
         <div class="field">
-          <label>Prioritet</label>
+          <label>Priority</label>
           <div class="priority-toggle">
-            <button type="button" data-p="normal" class="active">Redovno</button>
-            <button type="button" data-p="hitno">Hitno</button>
+            <button type="button" data-p="normal" class="active">Normal</button>
+            <button type="button" data-p="hitno">Urgent</button>
           </div>
         </div>
 
         <div class="field">
-          <label for="f-note">Napomena (opciono)</label>
-          <textarea id="f-note" placeholder="Dodatne informacije..."></textarea>
+          <label for="f-note">Note (optional)</label>
+          <textarea id="f-note" placeholder="Additional details..."></textarea>
         </div>
 
-        <button class="submit-btn" id="submit-btn">Pošalji narudžbinu</button>
+        <button class="submit-btn" id="submit-btn">Submit Order</button>
         <div class="login-error" id="order-error"></div>
 
         <div class="confirm" id="confirm-box">
-          <div class="label">Narudžbina primljena</div>
+          <div class="label">Order Received</div>
           <div class="big" id="confirm-num">#000000</div>
-          <p>Sačuvano je i vidljivo na displej ekranu magacina.</p>
-          <button id="confirm-new">Nova narudžbina</button>
+          <p>Saved and visible on the warehouse display screen.</p>
+          <button id="confirm-new">New Order</button>
         </div>
       </div>
     </div>
@@ -243,53 +243,53 @@
   <div id="view-display" class="view">
     <div class="board">
       <div class="col" data-status="novo">
-        <div class="col-head"><span>Novo</span><span class="count" id="count-novo">0</span></div>
+        <div class="col-head"><span>New</span><span class="count" id="count-novo">0</span></div>
         <div class="col-body" id="col-novo"></div>
       </div>
       <div class="col" data-status="u_obradi">
-        <div class="col-head"><span>U obradi</span><span class="count" id="count-u_obradi">0</span></div>
+        <div class="col-head"><span>In Progress</span><span class="count" id="count-u_obradi">0</span></div>
         <div class="col-body" id="col-u_obradi"></div>
       </div>
       <div class="col" data-status="spremno">
-        <div class="col-head"><span>Spremno</span><span class="count" id="count-spremno">0</span></div>
+        <div class="col-head"><span>Ready</span><span class="count" id="count-spremno">0</span></div>
         <div class="col-body" id="col-spremno"></div>
       </div>
     </div>
     <div class="status-bar">
-      <div><span class="dot"></span>Uživo — ažurira se automatski</div>
-      <div id="last-sync">poslednja sinh. --:--:--</div>
+      <div><span class="dot"></span>Live — updates automatically</div>
+      <div id="last-sync">last synced --:--:--</div>
     </div>
   </div>
 
   <div id="view-admin" class="view">
     <div class="admin-grid">
       <div class="panel">
-        <h2>Korisnici</h2>
-        <div class="admin-note hidden" id="default-admin-note">Nalog "admin" i dalje koristi podrazumevanu lozinku. Preporučeno je da je odmah promenite.</div>
+        <h2>Users</h2>
+        <div class="admin-note hidden" id="default-admin-note">The "admin" account is still using the default password. We recommend changing it right away.</div>
         <table class="users">
-          <thead><tr><th>Korisničko ime</th><th>Uloga</th><th>Akcije</th></tr></thead>
+          <thead><tr><th>Username</th><th>Role</th><th>Actions</th></tr></thead>
           <tbody id="users-tbody"></tbody>
         </table>
       </div>
       <div class="panel">
-        <h2>Dodaj korisnika</h2>
+        <h2>Add User</h2>
         <div class="field">
-          <label for="a-username">Korisničko ime</label>
+          <label for="a-username">Username</label>
           <input id="a-username" type="text" autocomplete="off">
         </div>
         <div class="field">
-          <label for="a-password">Lozinka</label>
+          <label for="a-password">Password</label>
           <input id="a-password" type="text" autocomplete="off">
         </div>
         <div class="field">
-          <label for="a-role">Uloga</label>
+          <label for="a-role">Role</label>
           <select id="a-role">
-            <option value="narucilac">Naručilac</option>
-            <option value="magacioner">Magacioner</option>
+            <option value="narucilac">Requester</option>
+            <option value="magacioner">Warehouse</option>
             <option value="admin">Admin</option>
           </select>
         </div>
-        <button class="submit-btn" id="add-user-btn">Dodaj korisnika</button>
+        <button class="submit-btn" id="add-user-btn">Add User</button>
         <div class="login-error" id="admin-error"></div>
       </div>
     </div>
@@ -304,9 +304,9 @@
   let priority = 'normal';
   let pollTimer = null;
 
-  const ROLE_LABEL = { narucilac: 'Naručilac', magacioner: 'Magacioner', admin: 'Admin' };
+  const ROLE_LABEL = { narucilac: 'Requester', magacioner: 'Warehouse', admin: 'Admin' };
   const ROLE_VIEWS = { narucilac: ['order'], magacioner: ['display'], admin: ['order','display','admin'] };
-  const VIEW_LABEL = { order: 'Naruči deo', display: 'Displej', admin: 'Korisnici' };
+  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users' };
 
   const $ = (id) => document.getElementById(id);
 
@@ -319,7 +319,7 @@
     let data = null;
     try { data = await res.json(); } catch(e){ /* no body */ }
     if(!res.ok){
-      const err = new Error((data && data.error) || 'Greška na serveru.');
+      const err = new Error((data && data.error) || 'Server error.');
       err.status = res.status;
       throw err;
     }
@@ -392,7 +392,7 @@
     chip.innerHTML = `<span>${escapeHtml(currentUser.username)}</span><span class="role-badge ${currentUser.role}">${ROLE_LABEL[currentUser.role]}</span>`;
     const logoutBtn = document.createElement('button');
     logoutBtn.className = 'logout-btn';
-    logoutBtn.textContent = 'Odjava';
+    logoutBtn.textContent = 'Log Out';
     logoutBtn.addEventListener('click', logout);
     chip.appendChild(logoutBtn);
     right.appendChild(chip);
@@ -452,7 +452,7 @@
       errEl.classList.add('show');
     } finally {
       $('submit-btn').disabled = false;
-      $('submit-btn').textContent = 'Pošalji narudžbinu';
+      $('submit-btn').textContent = 'Submit Order';
     }
   });
 
@@ -474,13 +474,13 @@
   // ---------- board rendering ----------
   function timeAgo(ts){
     const mins = Math.floor((Date.now() - ts) / 60000);
-    if(mins < 1) return 'upravo sada';
-    if(mins < 60) return 'pre ' + mins + ' min';
-    return 'pre ' + Math.floor(mins / 60) + ' h';
+    if(mins < 1) return 'just now';
+    if(mins < 60) return mins + ' min ago';
+    return Math.floor(mins / 60) + ' h ago';
   }
 
   const STATUS_NEXT = { novo: 'u_obradi', u_obradi: 'spremno' };
-  const STATUS_LABEL_ACTION = { novo: 'Preuzmi', u_obradi: 'Spremno' };
+  const STATUS_LABEL_ACTION = { novo: 'Start', u_obradi: 'Ready' };
 
   async function refreshOrders(){
     try{
@@ -507,7 +507,7 @@
       if(list.length === 0){
         const empty = document.createElement('div');
         empty.className = 'empty-note';
-        empty.textContent = status === 'novo' ? 'Nema novih narudžbina' : status === 'u_obradi' ? 'Ništa u obradi' : 'Ništa spremno';
+        empty.textContent = status === 'novo' ? 'No new orders' : status === 'u_obradi' ? 'Nothing in progress' : 'Nothing ready';
         body.appendChild(empty);
         return;
       }
@@ -532,7 +532,7 @@
         }
         if(status === 'spremno'){
           const doneBtn = document.createElement('button');
-          doneBtn.textContent = 'Izdato';
+          doneBtn.textContent = 'Issued';
           doneBtn.className = 'danger';
           doneBtn.addEventListener('click', async (e) => { e.stopPropagation(); await removeOrder(o.id); });
           actions.appendChild(doneBtn);
@@ -541,7 +541,7 @@
       });
     });
 
-    $('last-sync').textContent = 'poslednja sinh. ' + new Date().toLocaleTimeString('sr-RS');
+    $('last-sync').textContent = 'poslednja sinh. ' + new Date().toLocaleTimeString('en-GB');
   }
 
   async function advanceStatus(id, newStatus){
@@ -586,12 +586,12 @@
         <td><span class="role-badge ${u.role}">${ROLE_LABEL[u.role]}</span></td>
         <td>
           <div class="row-actions">
-            <button data-action="pw">Lozinka</button>
-            <button data-action="del" class="danger" ${isLastAdmin ? 'disabled title="Poslednji admin nalog ne može da se obriše"' : ''}>Obriši</button>
+            <button data-action="pw">Password</button>
+            <button data-action="del" class="danger" ${isLastAdmin ? 'disabled title="The last admin account cannot be deleted"' : ''}>Delete</button>
           </div>
           <div class="pw-inline hidden">
-            <input type="text" placeholder="Nova lozinka">
-            <button data-action="save-pw">Sačuvaj</button>
+            <input type="text" placeholder="New password">
+            <button data-action="save-pw">Save</button>
           </div>
         </td>
       `;
@@ -615,8 +615,8 @@
       if(!isLastAdmin){
         delBtn.addEventListener('click', async () => {
           const msg = u.username === currentUser.username
-            ? 'Ovo je vaš nalog. Bićete odjavljeni. Nastaviti?'
-            : 'Obrisati korisnika "' + u.username + '"?';
+            ? 'This is your own account. You will be logged out. Continue?'
+            : 'Delete user "' + u.username + '"?';
           if(!confirm(msg)) return;
           try{
             await api('/api/users/' + encodeURIComponent(u.username), { method: 'DELETE' });
@@ -649,13 +649,13 @@
 
   // ---------- init ----------
   function setDate(){
-    $('today-date').textContent = new Date().toLocaleDateString('sr-RS', { day:'2-digit', month:'2-digit', year:'numeric' });
+    $('today-date').textContent = new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' });
   }
 
   async function init(){
     setDate();
     setNextNum();
-    $('login-hint').textContent = 'Prvi put? admin / admin123 — promenite lozinku odmah po prijavi.';
+    $('login-hint').textContent = 'First time? admin / admin123 — change the password right after logging in.';
     try{
       const me = await api('/api/me');
       currentUser = me;
