@@ -79,6 +79,13 @@ app.get('/api/me', requireAuth, (req, res) => {
 });
 
 // ---------- orders routes ----------
+// Public, read-only board for the "screen" role — no login required.
+// Intended for a TV/tablet permanently showing the warehouse display.
+app.get('/api/public/board', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM orders ORDER BY created_at ASC');
+  res.json(rows);
+});
+
 app.get('/api/orders', requireAuth, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM orders ORDER BY created_at ASC');
   res.json(rows);
@@ -135,7 +142,7 @@ app.patch('/api/orders/:id/items/:index', requireAuth, requireRole('magacioner',
 
 app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
   const { status } = req.body || {};
-  if (!['novo', 'u_obradi', 'spremno'].includes(status)) {
+  if (!['novo', 'u_obradi', 'ceka_delove', 'spremno'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status.' });
   }
 
