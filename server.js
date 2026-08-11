@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
-  console.error('GREŠKA: JWT_SECRET nije podešen u environment varijablama. Postavite ga pre pokretanja u produkciji.');
+  console.error('ERROR: JWT_SECRET is not set in environment variables. Set it before running in production.');
 }
 
 app.use(express.json());
@@ -27,19 +27,19 @@ function signToken(user) {
 
 function requireAuth(req, res, next) {
   const token = req.cookies.token;
-  if (!token) return res.status(401).json({ error: 'Niste prijavljeni.' });
+  if (!token) return res.status(401).json({ error: 'You are not logged in.' });
   try {
     req.user = jwt.verify(token, JWT_SECRET || 'dev-only-secret-change-me');
     next();
   } catch (e) {
-    return res.status(401).json({ error: 'Sesija je istekla, prijavite se ponovo.' });
+    return res.status(401).json({ error: 'Your session has expired, please log in again.' });
   }
 }
 
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Nemate dozvolu za ovu akciju.' });
+      return res.status(403).json({ error: 'You do not have permission for this action.' });
     }
     next();
   };
@@ -55,14 +55,14 @@ const COOKIE_OPTS = {
 // ---------- auth routes ----------
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: 'Unesite korisničko ime i lozinku.' });
+  if (!username || !password) return res.status(400).json({ error: 'Enter your username and password.' });
 
   const { rows } = await pool.query('SELECT * FROM users WHERE lower(username) = lower($1)', [username]);
   const user = rows[0];
-  if (!user) return res.status(401).json({ error: 'Pogrešno korisničko ime ili lozinka.' });
+  if (!user) return res.status(401).json({ error: 'Incorrect username or password.' });
 
   const ok = await bcrypt.compare(password, user.pass_hash);
-  if (!ok) return res.status(401).json({ error: 'Pogrešno korisničko ime ili lozinka.' });
+  if (!ok) return res.status(401).json({ error: 'Incorrect username or password.' });
 
   const token = signToken(user);
   res.cookie('token', token, COOKIE_OPTS);
@@ -86,7 +86,7 @@ app.get('/api/orders', requireAuth, async (req, res) => {
 
 app.post('/api/orders', requireAuth, async (req, res) => {
   const { part, code, qty, note, priority } = req.body || {};
-  if (!part || !String(part).trim()) return res.status(400).json({ error: 'Naziv dela je obavezan.' });
+  if (!part || !String(part).trim()) return res.status(400).json({ error: 'Part name is required.' });
 
   const id = Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
   const createdAt = Date.now();
@@ -105,7 +105,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
 app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
   const { status } = req.body || {};
   if (!['novo', 'u_obradi', 'spremno'].includes(status)) {
-    return res.status(400).json({ error: 'Nevažeći status.' });
+    return res.status(400).json({ error: 'Invalid status.' });
   }
   await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
   res.json({ ok: true });
@@ -131,12 +131,12 @@ app.get('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
 
 app.post('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
   const { username, password, role } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: 'Popunite korisničko ime i lozinku.' });
-  if (password.length < 4) return res.status(400).json({ error: 'Lozinka mora imati najmanje 4 karaktera.' });
-  if (!['narucilac', 'magacioner', 'admin'].includes(role)) return res.status(400).json({ error: 'Nevažeća uloga.' });
+  if (!username || !password) return res.status(400).json({ error: 'Fill in username and password.' });
+  if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  if (!['narucilac', 'magacioner', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role.' });
 
   const existing = await pool.query('SELECT username FROM users WHERE lower(username) = lower($1)', [username]);
-  if (existing.rows.length) return res.status(409).json({ error: 'Korisničko ime već postoji.' });
+  if (existing.rows.length) return res.status(409).json({ error: 'Username already exists.' });
 
   const hash = await bcrypt.hash(password, 10);
   await pool.query('INSERT INTO users (username, pass_hash, role) VALUES ($1,$2,$3)', [username.trim(), hash, role]);
@@ -145,7 +145,7 @@ app.post('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
 
 app.patch('/api/users/:username', requireAuth, requireRole('admin'), async (req, res) => {
   const { password } = req.body || {};
-  if (!password || password.length < 4) return res.status(400).json({ error: 'Lozinka mora imati najmanje 4 karaktera.' });
+  if (!password || password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   const hash = await bcrypt.hash(password, 10);
   await pool.query('UPDATE users SET pass_hash = $1 WHERE username = $2', [hash, req.params.username]);
   res.json({ ok: true });
@@ -155,10 +155,10 @@ app.delete('/api/users/:username', requireAuth, requireRole('admin'), async (req
   const target = req.params.username;
   const adminCountRes = await pool.query("SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'");
   const targetRes = await pool.query('SELECT role FROM users WHERE username = $1', [target]);
-  if (!targetRes.rows.length) return res.status(404).json({ error: 'Korisnik ne postoji.' });
+  if (!targetRes.rows.length) return res.status(404).json({ error: 'User does not exist.' });
 
   if (targetRes.rows[0].role === 'admin' && adminCountRes.rows[0].n <= 1) {
-    return res.status(400).json({ error: 'Poslednji admin nalog ne može da se obriše.' });
+    return res.status(400).json({ error: 'The last admin account cannot be deleted.' });
   }
 
   await pool.query('DELETE FROM users WHERE username = $1', [target]);
@@ -173,9 +173,9 @@ app.get('*', (req, res) => {
 
 initDb()
   .then(() => {
-    app.listen(PORT, () => console.log(`Server radi na portu ${PORT}`));
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch((err) => {
-    console.error('Greška pri povezivanju na bazu:', err);
+    console.error('Database connection error:', err);
     process.exit(1);
   });
