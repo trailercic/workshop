@@ -96,7 +96,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const part = (raw && raw.part ? String(raw.part) : '').trim();
     if (!part) continue;
     const qty = Math.max(1, parseInt(raw.qty, 10) || 1);
-    cleanItems.push({ part, qty });
+    cleanItems.push({ part, qty, done: false });
   }
   if (cleanItems.length === 0) {
     return res.status(400).json({ error: 'Add at least one part with a name.' });
@@ -115,12 +115,38 @@ app.post('/api/orders', requireAuth, async (req, res) => {
   res.json({ id, ticket: '#' + id.slice(-6) });
 });
 
+app.patch('/api/orders/:id/items/:index', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
+  const { id, index } = req.params;
+  const idx = parseInt(index, 10);
+
+  const { rows } = await pool.query('SELECT items, status FROM orders WHERE id = $1', [id]);
+  if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
+
+  const items = Array.isArray(rows[0].items) ? rows[0].items : [];
+  if (!items[idx]) return res.status(400).json({ error: 'Invalid item.' });
+
+  items[idx] = { ...items[idx], done: !items[idx].done };
+  const allDone = items.length > 0 && items.every((it) => it.done);
+  const status = allDone ? 'spremno' : (rows[0].status === 'spremno' ? 'u_obradi' : rows[0].status);
+
+  await pool.query('UPDATE orders SET items = $1, status = $2 WHERE id = $3', [JSON.stringify(items), status, id]);
+  res.json({ ok: true, items, status });
+});
+
 app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
   const { status } = req.body || {};
   if (!['novo', 'u_obradi', 'spremno'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status.' });
   }
-  await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
+
+  if (status === 'spremno') {
+    // Marking the whole order ready also marks every individual part as done.
+    const { rows } = await pool.query('SELECT items FROM orders WHERE id = $1', [req.params.id]);
+    const items = (rows.length && Array.isArray(rows[0].items)) ? rows[0].items.map((it) => ({ ...it, done: true })) : [];
+    await pool.query('UPDATE orders SET status = $1, items = $2 WHERE id = $3', [status, JSON.stringify(items), req.params.id]);
+  } else {
+    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
+  }
   res.json({ ok: true });
 });
 
