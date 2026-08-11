@@ -85,18 +85,31 @@ app.get('/api/orders', requireAuth, async (req, res) => {
 });
 
 app.post('/api/orders', requireAuth, async (req, res) => {
-  const { part, code, qty, note, priority } = req.body || {};
-  if (!part || !String(part).trim()) return res.status(400).json({ error: 'Part name is required.' });
+  const { serviceOrder, items, note, priority } = req.body || {};
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Add at least one part.' });
+  }
+
+  const cleanItems = [];
+  for (const raw of items) {
+    const part = (raw && raw.part ? String(raw.part) : '').trim();
+    if (!part) continue;
+    const qty = Math.max(1, parseInt(raw.qty, 10) || 1);
+    cleanItems.push({ part, qty });
+  }
+  if (cleanItems.length === 0) {
+    return res.status(400).json({ error: 'Add at least one part with a name.' });
+  }
 
   const id = Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
   const createdAt = Date.now();
-  const safeQty = Math.max(1, parseInt(qty, 10) || 1);
   const safePriority = priority === 'hitno' ? 'hitno' : 'normal';
 
   await pool.query(
-    `INSERT INTO orders (id, part, code, qty, requester, note, priority, status, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'novo',$8)`,
-    [id, part.trim(), (code || '').trim(), safeQty, req.user.username, (note || '').trim(), safePriority, createdAt]
+    `INSERT INTO orders (id, service_order, requester, note, priority, status, items, created_at)
+     VALUES ($1,$2,$3,$4,$5,'novo',$6,$7)`,
+    [id, (serviceOrder || '').trim(), req.user.username, (note || '').trim(), safePriority, JSON.stringify(cleanItems), createdAt]
   );
 
   res.json({ id, ticket: '#' + id.slice(-6) });
@@ -118,28 +131,29 @@ app.delete('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), a
 
 // ---------- user management (admin only) ----------
 app.get('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
-  const { rows } = await pool.query('SELECT username, role, pass_hash, created_at FROM users ORDER BY created_at ASC');
+  const { rows } = await pool.query('SELECT username, role, location, pass_hash, created_at FROM users ORDER BY created_at ASC');
   const out = await Promise.all(rows.map(async (u) => {
     let warnDefault = false;
     if (u.username === 'admin') {
       warnDefault = await bcrypt.compare('admin123', u.pass_hash);
     }
-    return { username: u.username, role: u.role, created_at: u.created_at, warn_default: warnDefault };
+    return { username: u.username, role: u.role, location: u.location, created_at: u.created_at, warn_default: warnDefault };
   }));
   res.json(out);
 });
 
 app.post('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
-  const { username, password, role } = req.body || {};
+  const { username, password, role, location } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Fill in username and password.' });
   if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   if (!['narucilac', 'magacioner', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role.' });
+  if (!['SOHO', 'MEPA'].includes(location)) return res.status(400).json({ error: 'Invalid location.' });
 
   const existing = await pool.query('SELECT username FROM users WHERE lower(username) = lower($1)', [username]);
   if (existing.rows.length) return res.status(409).json({ error: 'Username already exists.' });
 
   const hash = await bcrypt.hash(password, 10);
-  await pool.query('INSERT INTO users (username, pass_hash, role) VALUES ($1,$2,$3)', [username.trim(), hash, role]);
+  await pool.query('INSERT INTO users (username, pass_hash, role, location) VALUES ($1,$2,$3,$4)', [username.trim(), hash, role, location]);
   res.json({ ok: true });
 });
 
