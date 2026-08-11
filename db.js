@@ -35,7 +35,7 @@ async function initDb() {
       requester     TEXT NOT NULL,
       note          TEXT,
       priority      TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal','hitno')),
-      status        TEXT NOT NULL DEFAULT 'novo' CHECK (status IN ('novo','u_obradi','spremno')),
+      status        TEXT NOT NULL DEFAULT 'novo' CHECK (status IN ('novo','u_obradi','ceka_delove','spremno')),
       service_order TEXT,
       items         JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at    BIGINT NOT NULL
@@ -58,6 +58,11 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_order TEXT;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS items JSONB NOT NULL DEFAULT '[]'::jsonb;`);
+
+  // Migration: allow the new 'ceka_delove' (waiting for parts) status for
+  // installs whose status CHECK constraint predates this value.
+  await pool.query(`ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;`);
+  await pool.query(`ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN ('novo','u_obradi','ceka_delove','spremno'));`);
 
   const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM users');
   if (rows[0].n === 0) {
