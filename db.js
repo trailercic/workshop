@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
 if (!process.env.DATABASE_URL) {
-  console.error('GREŠKA: DATABASE_URL nije podešen u environment varijablama.');
+  console.error('ERROR: DATABASE_URL is not set in environment variables.');
 }
 
 const pool = new Pool({
@@ -41,7 +41,7 @@ async function initDb() {
       'INSERT INTO users (username, pass_hash, role) VALUES ($1, $2, $3)',
       ['admin', hash, 'admin']
     );
-    console.log('Kreiran podrazumevani admin nalog: admin / admin123 — promenite odmah po prijavi.');
+    console.log('Default admin account created: admin / admin123 — change it right after logging in.');
   }
 }
 
