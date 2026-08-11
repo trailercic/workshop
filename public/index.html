@@ -98,6 +98,12 @@
 
   .items-preview{ margin-top:4px; }
   .items-preview .item-line{ display:flex; justify-content:space-between; font-size:12px; padding:3px 0; color: var(--paper-dim); }
+  .items-preview .item-line.toggleable{ cursor:pointer; padding:6px 8px; margin:2px 0; background: var(--panel-raised); border-radius:2px; border-left: 3px solid var(--line); }
+  .items-preview .item-line.toggleable:hover{ border-left-color: var(--amber); }
+  .items-preview .item-line.toggleable .check{ font-family: var(--font-mono); margin-right:6px; color: var(--paper-dim); }
+  .items-preview .item-line.done{ border-left-color: var(--green); }
+  .items-preview .item-line.done span:first-child{ text-decoration: line-through; opacity:0.6; }
+  .items-preview .item-line.done .check{ color: var(--green); }
 
   .priority-toggle{ display:flex; gap:8px; }
   .priority-toggle button{ flex:1; padding: 10px; border-radius:2px; cursor:pointer; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:12px; border:1px solid var(--line); background: var(--bg); color: var(--paper-dim); }
@@ -130,7 +136,7 @@
   .card{ background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--steel); padding: 12px 14px; cursor:pointer; position:relative; transition: border-color .15s, transform .1s; }
   .card:hover{ transform: translateY(-1px); border-color: var(--amber); }
   .card.urgent{ border-left-color: var(--red); }
-  .card.urgent::after{ content:"HITNO"; position:absolute; top:8px; right:10px; font-family: var(--font-mono); font-size:10px; letter-spacing:1px; color: var(--red); border:1px solid var(--red); padding:1px 5px; transform: rotate(4deg); }
+  .card.urgent::after{ content:"URGENT"; position:absolute; top:8px; right:10px; font-family: var(--font-mono); font-size:10px; letter-spacing:1px; color: var(--red); border:1px solid var(--red); padding:1px 5px; transform: rotate(4deg); }
   .card .part{ font-family: var(--font-display); font-size: 16px; text-transform: uppercase; margin-bottom:4px; padding-right: 50px; }
   .card .meta{ font-family: var(--font-mono); font-size: 11px; color: var(--paper-dim); display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
   .card .note{ font-size:12px; color: var(--paper-dim); margin-top:6px; font-style:italic; }
@@ -588,8 +594,12 @@
           `;
         } else {
           const items = Array.isArray(o.items) ? o.items : [];
-          const itemsHtml = items.map(it => `
-            <div class="item-line"><span>${escapeHtml(it.part)}</span><span class="qty">×${it.qty}</span></div>
+          const interactive = status === 'u_obradi';
+          const itemsHtml = items.map((it, idx) => `
+            <div class="item-line${interactive ? ' toggleable' : ''}${it.done ? ' done' : ''}" ${interactive ? `data-idx="${idx}"` : ''}>
+              <span>${interactive ? `<span class="check">${it.done ? '✓' : '○'}</span>` : ''}${escapeHtml(it.part)}</span>
+              <span class="qty">×${it.qty}</span>
+            </div>
           `).join('');
           card.innerHTML = `
             <div class="part">${label}</div>
@@ -598,6 +608,14 @@
             ${o.note ? `<div class="note">${escapeHtml(o.note)}</div>` : ''}
             <div class="actions"></div>
           `;
+          if(interactive){
+            card.querySelectorAll('.item-line.toggleable').forEach(line => {
+              line.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await toggleItem(o.id, line.dataset.idx);
+              });
+            });
+          }
         }
         const actions = card.querySelector('.actions');
 
@@ -624,6 +642,12 @@
   async function advanceStatus(id, newStatus){
     try{
       await api('/api/orders/' + id, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
+      await refreshOrders();
+    } catch(e){ alert(e.message); }
+  }
+  async function toggleItem(id, index){
+    try{
+      await api('/api/orders/' + id + '/items/' + index, { method: 'PATCH' });
       await refreshOrders();
     } catch(e){ alert(e.message); }
   }
