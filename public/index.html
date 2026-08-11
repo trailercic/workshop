@@ -52,6 +52,7 @@
   .role-badge.narucilac{ color: var(--steel); border-color: var(--steel); }
   .role-badge.magacioner{ color: var(--amber); border-color: var(--amber-dim); }
   .role-badge.admin{ color: var(--red); border-color: var(--red); }
+  .role-badge.screen{ color: var(--green); border-color: var(--green); }
   .location-badge{ padding:3px 8px; border-radius:2px; letter-spacing:1px; text-transform:uppercase; font-size:10px; border:1px solid var(--line); color: var(--paper-dim); font-family: var(--font-mono); }
   .logout-btn{ background:transparent; border:1px solid var(--line); color: var(--paper-dim); font-family: var(--font-mono); font-size:11px; padding:6px 10px; border-radius:2px; cursor:pointer; }
   .logout-btn:hover{ border-color: var(--red); color: var(--red); }
@@ -122,12 +123,13 @@
   .confirm button{ margin-top:16px; background:transparent; border:1px solid var(--line); color: var(--paper); padding: 9px 16px; border-radius:2px; cursor:pointer; font-family: var(--font-body); font-size:13px; }
   .confirm button:hover{ border-color: var(--amber); color: var(--amber); }
 
-  .board{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items:start; }
+  .board{ display:grid; grid-template-columns: repeat(4, 1fr); gap: 18px; align-items:start; }
   .col{ background: var(--panel); border: 1px solid var(--line); min-height: 200px; }
   .col-head{ padding: 12px 16px; border-bottom: 2px solid var(--line); display:flex; align-items:center; justify-content:space-between; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1.5px; font-size:14px; }
   .col-head .count{ font-family: var(--font-mono); font-size:12px; background: var(--bg); padding: 2px 8px; border-radius: 10px; color: var(--paper-dim); }
   .col[data-status="novo"] .col-head{ color: var(--amber); }
   .col[data-status="u_obradi"] .col-head{ color: var(--steel); }
+  .col[data-status="ceka_delove"] .col-head{ color: var(--amber-dim); }
   .col[data-status="spremno"] .col-head{ color: var(--green); }
 
   .col-body{ padding: 12px; display:flex; flex-direction:column; gap: 10px; min-height: 120px; }
@@ -148,6 +150,10 @@
 
   .status-bar{ display:flex; justify-content:space-between; align-items:center; margin-top:16px; font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); }
   .dot{ display:inline-block; width:7px; height:7px; border-radius:50%; background: var(--green); margin-right:6px; box-shadow: 0 0 5px var(--green); }
+
+  body.screen-mode .card{ cursor: default; }
+  body.screen-mode .card:hover{ transform: none; border-color: var(--line); }
+  body.screen-mode .card.urgent:hover{ border-color: var(--red); }
 
   .admin-grid{ display:grid; grid-template-columns: 1.4fr 1fr; gap: 18px; align-items:start; }
   .panel{ background: var(--panel); border: 1px solid var(--line); padding: 18px 18px 20px; }
@@ -264,6 +270,10 @@
         <div class="col-head"><span>In Progress</span><span class="count" id="count-u_obradi">0</span></div>
         <div class="col-body" id="col-u_obradi"></div>
       </div>
+      <div class="col" data-status="ceka_delove">
+        <div class="col-head"><span>Waiting for Parts</span><span class="count" id="count-ceka_delove">0</span></div>
+        <div class="col-body" id="col-ceka_delove"></div>
+      </div>
       <div class="col" data-status="spremno">
         <div class="col-head"><span>Ready</span><span class="count" id="count-spremno">0</span></div>
         <div class="col-body" id="col-spremno"></div>
@@ -321,6 +331,7 @@
 <script>
 (function(){
   let orders = [];
+  const SCREEN_MODE = window.location.pathname.replace(/\/+$/, '') === '/screen';
   let currentUser = null;
   let priority = 'normal';
   let pollTimer = null;
@@ -547,20 +558,23 @@
     return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
 
-  const STATUS_NEXT = { novo: 'u_obradi', u_obradi: 'spremno' };
-  const STATUS_LABEL_ACTION = { novo: 'Start', u_obradi: 'Ready' };
+  const COLUMN_ACTIONS = {
+    novo: [ { label: 'Start', status: 'u_obradi' } ],
+    u_obradi: [ { label: 'Waiting for Parts', status: 'ceka_delove' }, { label: 'Ready', status: 'spremno' } ],
+    ceka_delove: [ { label: 'Resume', status: 'u_obradi' }, { label: 'Ready', status: 'spremno' } ],
+  };
 
   async function refreshOrders(){
     try{
-      orders = await api('/api/orders');
+      orders = await api(SCREEN_MODE ? '/api/public/board' : '/api/orders');
       renderBoard();
     } catch(e){
-      if(e.status === 401){ logout(); }
+      if(!SCREEN_MODE && e.status === 401){ logout(); }
     }
   }
 
   function renderBoard(){
-    const cols = { novo: [], u_obradi: [], spremno: [] };
+    const cols = { novo: [], u_obradi: [], ceka_delove: [], spremno: [] };
     orders.forEach(o => { if(cols[o.status]) cols[o.status].push(o); });
 
     Object.keys(cols).forEach(status => {
@@ -575,7 +589,8 @@
       if(list.length === 0){
         const empty = document.createElement('div');
         empty.className = 'empty-note';
-        empty.textContent = status === 'novo' ? 'No new orders' : status === 'u_obradi' ? 'Nothing in progress' : 'Nothing ready';
+        const EMPTY_TEXT = { novo: 'No new orders', u_obradi: 'Nothing in progress', ceka_delove: 'Nothing waiting', spremno: 'Nothing ready' };
+        empty.textContent = EMPTY_TEXT[status];
         body.appendChild(empty);
         return;
       }
@@ -594,7 +609,7 @@
           `;
         } else {
           const items = Array.isArray(o.items) ? o.items : [];
-          const interactive = status === 'u_obradi';
+          const interactive = (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
           const itemsHtml = items.map((it, idx) => `
             <div class="item-line${interactive ? ' toggleable' : ''}${it.done ? ' done' : ''}" ${interactive ? `data-idx="${idx}"` : ''}>
               <span>${interactive ? `<span class="check">${it.done ? '✓' : '○'}</span>` : ''}${escapeHtml(it.part)}</span>
@@ -617,26 +632,28 @@
             });
           }
         }
-        const actions = card.querySelector('.actions');
 
-        if(STATUS_NEXT[status]){
-          const nextBtn = document.createElement('button');
-          nextBtn.textContent = STATUS_LABEL_ACTION[status];
-          nextBtn.addEventListener('click', async (e) => { e.stopPropagation(); await advanceStatus(o.id, STATUS_NEXT[status]); });
-          actions.appendChild(nextBtn);
-        }
-        if(status === 'spremno'){
-          const doneBtn = document.createElement('button');
-          doneBtn.textContent = 'Issued';
-          doneBtn.className = 'danger';
-          doneBtn.addEventListener('click', async (e) => { e.stopPropagation(); await removeOrder(o.id); });
-          actions.appendChild(doneBtn);
+        if(!SCREEN_MODE){
+          const actions = card.querySelector('.actions');
+          (COLUMN_ACTIONS[status] || []).forEach(action => {
+            const btn = document.createElement('button');
+            btn.textContent = action.label;
+            btn.addEventListener('click', async (e) => { e.stopPropagation(); await advanceStatus(o.id, action.status); });
+            actions.appendChild(btn);
+          });
+          if(status === 'spremno'){
+            const doneBtn = document.createElement('button');
+            doneBtn.textContent = 'Issued';
+            doneBtn.className = 'danger';
+            doneBtn.addEventListener('click', async (e) => { e.stopPropagation(); await removeOrder(o.id); });
+            actions.appendChild(doneBtn);
+          }
         }
         body.appendChild(card);
       });
     });
 
-    $('last-sync').textContent = 'poslednja sinh. ' + new Date().toLocaleTimeString('en-GB');
+    $('last-sync').textContent = 'last synced ' + new Date().toLocaleTimeString('en-GB');
   }
 
   async function advanceStatus(id, newStatus){
@@ -756,6 +773,16 @@
   }
 
   async function init(){
+    if(SCREEN_MODE){
+      document.body.classList.add('screen-mode');
+      const right = $('topbar-right');
+      right.innerHTML = '<div class="user-chip"><span class="role-badge screen">Live Display · Read Only</span></div>';
+      ['login','order','display','admin'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
+      await refreshOrders();
+      startPolling();
+      return;
+    }
+
     setDate();
     setNextNum();
     resetItemRows();
