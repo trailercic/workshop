@@ -151,6 +151,9 @@
   .status-bar{ display:flex; justify-content:space-between; align-items:center; margin-top:16px; font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); }
   .dot{ display:inline-block; width:7px; height:7px; border-radius:50%; background: var(--green); margin-right:6px; box-shadow: 0 0 5px var(--green); }
 
+  .location-switch{ margin-bottom: 16px; width: fit-content; }
+  .location-switch.hidden{ display:none; }
+
   body.screen-mode .card{ cursor: default; }
   body.screen-mode .card:hover{ transform: none; border-color: var(--line); }
   body.screen-mode .card.urgent:hover{ border-color: var(--red); }
@@ -261,6 +264,10 @@
   </div>
 
   <div id="view-display" class="view">
+    <div class="switch location-switch" id="location-switch">
+      <button type="button" data-loc="SOHO" class="active">SOHO</button>
+      <button type="button" data-loc="MEPA">MEPA</button>
+    </div>
     <div class="board" id="board"></div>
     <div class="status-bar">
       <div><span class="dot"></span>Live — updates automatically</div>
@@ -424,6 +431,7 @@
     }
     stopPolling();
     if(view === 'display'){
+      setupLocationSwitch();
       buildBoardSkeleton();
       refreshOrders();
       startPolling();
@@ -562,19 +570,41 @@
   }
 
   const BOARD_COLUMNS = [
-    { key: 'novo', label: 'New', status: 'novo', filter: (o) => o.status === 'novo' },
+    { key: 'novo-SOHO', label: 'New · SOHO', status: 'novo', filter: (o) => o.status === 'novo' && o.location === 'SOHO' },
+    { key: 'novo-MEPA', label: 'New · MEPA', status: 'novo', filter: (o) => o.status === 'novo' && o.location === 'MEPA' },
     { key: 'u_obradi-SOHO', label: 'In Progress · SOHO', status: 'u_obradi', filter: (o) => o.status === 'u_obradi' && o.location === 'SOHO' },
     { key: 'u_obradi-MEPA', label: 'In Progress · MEPA', status: 'u_obradi', filter: (o) => o.status === 'u_obradi' && o.location === 'MEPA' },
     { key: 'ceka_delove-SOHO', label: 'Waiting for Parts · SOHO', status: 'ceka_delove', filter: (o) => o.status === 'ceka_delove' && o.location === 'SOHO' },
     { key: 'ceka_delove-MEPA', label: 'Waiting for Parts · MEPA', status: 'ceka_delove', filter: (o) => o.status === 'ceka_delove' && o.location === 'MEPA' },
-    { key: 'spremno', label: 'Ready', status: 'spremno', filter: (o) => o.status === 'spremno' },
+    { key: 'spremno-SOHO', label: 'Ready · SOHO', status: 'spremno', filter: (o) => o.status === 'spremno' && o.location === 'SOHO' },
+    { key: 'spremno-MEPA', label: 'Ready · MEPA', status: 'spremno', filter: (o) => o.status === 'spremno' && o.location === 'MEPA' },
   ];
 
   const EMPTY_TEXT = { novo: 'No new orders', u_obradi: 'Nothing in progress', ceka_delove: 'Nothing waiting', spremno: 'Nothing ready' };
 
+  let activeLocation = 'SOHO';
+
   function getActiveColumns(){
-    if(!SCREEN_LOCATION) return BOARD_COLUMNS;
-    return BOARD_COLUMNS.filter(col => !col.key.includes('-') || col.key.endsWith('-' + SCREEN_LOCATION));
+    const loc = SCREEN_LOCATION || activeLocation;
+    return BOARD_COLUMNS.filter(col => col.key.endsWith('-' + loc));
+  }
+
+  function setupLocationSwitch(){
+    const switchEl = $('location-switch');
+    if(SCREEN_LOCATION){
+      switchEl.classList.add('hidden');
+      return;
+    }
+    switchEl.classList.remove('hidden');
+    switchEl.querySelectorAll('button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.loc === activeLocation);
+      btn.onclick = () => {
+        activeLocation = btn.dataset.loc;
+        switchEl.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.loc === activeLocation));
+        buildBoardSkeleton();
+        renderBoard();
+      };
+    });
   }
 
   function buildBoardSkeleton(){
@@ -800,6 +830,7 @@
       const right = $('topbar-right');
       right.innerHTML = '<div class="user-chip"><span class="role-badge screen">Live Display' + (SCREEN_LOCATION ? ' · ' + SCREEN_LOCATION : ' · Read Only') + '</span></div>';
       ['login','order','display','admin'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
+      setupLocationSwitch();
       buildBoardSkeleton();
       await refreshOrders();
       startPolling();
