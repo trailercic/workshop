@@ -67,6 +67,23 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS items JSONB NOT NULL DEFAULT '[]'::jsonb;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'SOHO';`);
 
+  // "Issued" orders are archived instead of deleted, so admins can review history.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS issued_by TEXT;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS issued_at BIGINT;`);
+
+  // Full audit trail: one row per action taken on an order.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_events (
+      id          SERIAL PRIMARY KEY,
+      order_id    TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      action      TEXT NOT NULL,
+      actor       TEXT NOT NULL,
+      detail      TEXT,
+      created_at  BIGINT NOT NULL
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS order_events_order_id_idx ON order_events (order_id);`);
+
   // Migration: allow the new 'ceka_delove' (waiting for parts) status for
   // installs whose status CHECK constraint predates this value.
   await pool.query(`ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;`);
