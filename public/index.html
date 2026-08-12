@@ -123,7 +123,7 @@
   .confirm button{ margin-top:16px; background:transparent; border:1px solid var(--line); color: var(--paper); padding: 9px 16px; border-radius:2px; cursor:pointer; font-family: var(--font-body); font-size:13px; }
   .confirm button:hover{ border-color: var(--amber); color: var(--amber); }
 
-  .board{ display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; align-items:start; }
+  .board{ display:grid; grid-template-columns: repeat(var(--board-cols, 4), 1fr); gap: 14px; align-items:start; }
   .col{ background: var(--panel); border: 1px solid var(--line); min-height: 200px; }
   .col-head{ padding: 12px 16px; border-bottom: 2px solid var(--line); display:flex; align-items:center; justify-content:space-between; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1.5px; font-size:14px; }
   .col-head .count{ font-family: var(--font-mono); font-size:12px; background: var(--bg); padding: 2px 8px; border-radius: 10px; color: var(--paper-dim); }
@@ -578,7 +578,9 @@
   }
 
   function buildBoardSkeleton(){
-    $('board').innerHTML = getActiveColumns().map(col => `
+    const cols = getActiveColumns();
+    $('board').style.setProperty('--board-cols', cols.length);
+    $('board').innerHTML = cols.map(col => `
       <div class="col" data-status="${col.status}">
         <div class="col-head"><span>${col.label}</span><span class="count" id="count-${col.key}">0</span></div>
         <div class="col-body" id="col-${col.key}"></div>
