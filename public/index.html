@@ -123,7 +123,7 @@
   .confirm button{ margin-top:16px; background:transparent; border:1px solid var(--line); color: var(--paper); padding: 9px 16px; border-radius:2px; cursor:pointer; font-family: var(--font-body); font-size:13px; }
   .confirm button:hover{ border-color: var(--amber); color: var(--amber); }
 
-  .board{ display:grid; grid-template-columns: repeat(4, 1fr); gap: 18px; align-items:start; }
+  .board{ display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; align-items:start; }
   .col{ background: var(--panel); border: 1px solid var(--line); min-height: 200px; }
   .col-head{ padding: 12px 16px; border-bottom: 2px solid var(--line); display:flex; align-items:center; justify-content:space-between; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1.5px; font-size:14px; }
   .col-head .count{ font-family: var(--font-mono); font-size:12px; background: var(--bg); padding: 2px 8px; border-radius: 10px; color: var(--paper-dim); }
@@ -261,24 +261,7 @@
   </div>
 
   <div id="view-display" class="view">
-    <div class="board">
-      <div class="col" data-status="novo">
-        <div class="col-head"><span>New</span><span class="count" id="count-novo">0</span></div>
-        <div class="col-body" id="col-novo"></div>
-      </div>
-      <div class="col" data-status="u_obradi">
-        <div class="col-head"><span>In Progress</span><span class="count" id="count-u_obradi">0</span></div>
-        <div class="col-body" id="col-u_obradi"></div>
-      </div>
-      <div class="col" data-status="ceka_delove">
-        <div class="col-head"><span>Waiting for Parts</span><span class="count" id="count-ceka_delove">0</span></div>
-        <div class="col-body" id="col-ceka_delove"></div>
-      </div>
-      <div class="col" data-status="spremno">
-        <div class="col-head"><span>Ready</span><span class="count" id="count-spremno">0</span></div>
-        <div class="col-body" id="col-spremno"></div>
-      </div>
-    </div>
+    <div class="board" id="board"></div>
     <div class="status-bar">
       <div><span class="dot"></span>Live — updates automatically</div>
       <div id="last-sync">last synced --:--:--</div>
@@ -313,7 +296,7 @@
             <option value="admin">Admin</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" id="location-field">
           <label for="a-location">Location</label>
           <select id="a-location">
             <option value="SOHO">SOHO</option>
@@ -331,7 +314,11 @@
 <script>
 (function(){
   let orders = [];
-  const SCREEN_MODE = window.location.pathname.replace(/\/+$/, '') === '/screen';
+  const SCREEN_PATH_PARTS = window.location.pathname.replace(/\/+$/, '').split('/').filter(Boolean);
+  const SCREEN_MODE = SCREEN_PATH_PARTS[0] === 'screen';
+  const SCREEN_LOCATION = (SCREEN_MODE && SCREEN_PATH_PARTS[1] && ['soho', 'mepa'].includes(SCREEN_PATH_PARTS[1].toLowerCase()))
+    ? SCREEN_PATH_PARTS[1].toUpperCase()
+    : null;
   let currentUser = null;
   let priority = 'normal';
   let pollTimer = null;
@@ -437,6 +424,7 @@
     }
     stopPolling();
     if(view === 'display'){
+      buildBoardSkeleton();
       refreshOrders();
       startPolling();
     } else if(view === 'admin'){
@@ -573,84 +561,110 @@
     }
   }
 
-  function renderBoard(){
-    const cols = { novo: [], u_obradi: [], ceka_delove: [], spremno: [] };
-    orders.forEach(o => { if(cols[o.status]) cols[o.status].push(o); });
+  const BOARD_COLUMNS = [
+    { key: 'novo', label: 'New', status: 'novo', filter: (o) => o.status === 'novo' },
+    { key: 'u_obradi-SOHO', label: 'In Progress · SOHO', status: 'u_obradi', filter: (o) => o.status === 'u_obradi' && o.location === 'SOHO' },
+    { key: 'u_obradi-MEPA', label: 'In Progress · MEPA', status: 'u_obradi', filter: (o) => o.status === 'u_obradi' && o.location === 'MEPA' },
+    { key: 'ceka_delove-SOHO', label: 'Waiting for Parts · SOHO', status: 'ceka_delove', filter: (o) => o.status === 'ceka_delove' && o.location === 'SOHO' },
+    { key: 'ceka_delove-MEPA', label: 'Waiting for Parts · MEPA', status: 'ceka_delove', filter: (o) => o.status === 'ceka_delove' && o.location === 'MEPA' },
+    { key: 'spremno', label: 'Ready', status: 'spremno', filter: (o) => o.status === 'spremno' },
+  ];
 
-    Object.keys(cols).forEach(status => {
-      const list = cols[status].sort((a,b) => {
+  const EMPTY_TEXT = { novo: 'No new orders', u_obradi: 'Nothing in progress', ceka_delove: 'Nothing waiting', spremno: 'Nothing ready' };
+
+  function getActiveColumns(){
+    if(!SCREEN_LOCATION) return BOARD_COLUMNS;
+    return BOARD_COLUMNS.filter(col => !col.key.includes('-') || col.key.endsWith('-' + SCREEN_LOCATION));
+  }
+
+  function buildBoardSkeleton(){
+    $('board').innerHTML = getActiveColumns().map(col => `
+      <div class="col" data-status="${col.status}">
+        <div class="col-head"><span>${col.label}</span><span class="count" id="count-${col.key}">0</span></div>
+        <div class="col-body" id="col-${col.key}"></div>
+      </div>
+    `).join('');
+  }
+
+  function buildCard(o){
+    const status = o.status;
+    const card = document.createElement('div');
+    card.className = 'card' + (o.priority === 'hitno' ? ' urgent' : '');
+    const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
+
+    if(status === 'novo'){
+      // Minimal view: only the service order and order time are shown until someone claims it.
+      card.innerHTML = `
+        <div class="part">${label}</div>
+        <div class="meta"><span>${clockTime(Number(o.created_at))}</span><span>${timeAgo(Number(o.created_at))}</span></div>
+        <div class="actions"></div>
+      `;
+    } else {
+      const items = Array.isArray(o.items) ? o.items : [];
+      const interactive = (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
+      const itemsHtml = items.map((it, idx) => `
+        <div class="item-line${interactive ? ' toggleable' : ''}${it.done ? ' done' : ''}" ${interactive ? `data-idx="${idx}"` : ''}>
+          <span>${interactive ? `<span class="check">${it.done ? '✓' : '○'}</span>` : ''}${escapeHtml(it.part)}</span>
+          <span class="qty">×${it.qty}</span>
+        </div>
+      `).join('');
+      card.innerHTML = `
+        <div class="part">${label}</div>
+        <div class="meta"><span>${escapeHtml(o.requester)}</span><span>${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span></div>
+        <div class="items-preview">${itemsHtml}</div>
+        ${o.note ? `<div class="note">${escapeHtml(o.note)}</div>` : ''}
+        <div class="actions"></div>
+      `;
+      if(interactive){
+        card.querySelectorAll('.item-line.toggleable').forEach(line => {
+          line.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await toggleItem(o.id, line.dataset.idx);
+          });
+        });
+      }
+    }
+
+    if(!SCREEN_MODE){
+      const actions = card.querySelector('.actions');
+      (COLUMN_ACTIONS[status] || []).forEach(action => {
+        const btn = document.createElement('button');
+        btn.textContent = action.label;
+        btn.addEventListener('click', async (e) => { e.stopPropagation(); await advanceStatus(o.id, action.status); });
+        actions.appendChild(btn);
+      });
+      if(status === 'spremno'){
+        const doneBtn = document.createElement('button');
+        doneBtn.textContent = 'Issued';
+        doneBtn.className = 'danger';
+        doneBtn.addEventListener('click', async (e) => { e.stopPropagation(); await removeOrder(o.id); });
+        actions.appendChild(doneBtn);
+      }
+    }
+
+    return card;
+  }
+
+  function renderBoard(){
+    getActiveColumns().forEach(col => {
+      const list = orders.filter(col.filter).sort((a, b) => {
         if(a.priority !== b.priority) return a.priority === 'hitno' ? -1 : 1;
         return Number(a.created_at) - Number(b.created_at);
       });
-      $('count-' + status).textContent = list.length;
-      const body = $('col-' + status);
+
+      $('count-' + col.key).textContent = list.length;
+      const body = $('col-' + col.key);
       body.innerHTML = '';
 
       if(list.length === 0){
         const empty = document.createElement('div');
         empty.className = 'empty-note';
-        const EMPTY_TEXT = { novo: 'No new orders', u_obradi: 'Nothing in progress', ceka_delove: 'Nothing waiting', spremno: 'Nothing ready' };
-        empty.textContent = EMPTY_TEXT[status];
+        empty.textContent = EMPTY_TEXT[col.status];
         body.appendChild(empty);
         return;
       }
 
-      list.forEach(o => {
-        const card = document.createElement('div');
-        card.className = 'card' + (o.priority === 'hitno' ? ' urgent' : '');
-        const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
-
-        if(status === 'novo'){
-          // Minimal view: only the service order and order time are shown until someone claims it.
-          card.innerHTML = `
-            <div class="part">${label}</div>
-            <div class="meta"><span>${clockTime(Number(o.created_at))}</span><span>${timeAgo(Number(o.created_at))}</span></div>
-            <div class="actions"></div>
-          `;
-        } else {
-          const items = Array.isArray(o.items) ? o.items : [];
-          const interactive = (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
-          const itemsHtml = items.map((it, idx) => `
-            <div class="item-line${interactive ? ' toggleable' : ''}${it.done ? ' done' : ''}" ${interactive ? `data-idx="${idx}"` : ''}>
-              <span>${interactive ? `<span class="check">${it.done ? '✓' : '○'}</span>` : ''}${escapeHtml(it.part)}</span>
-              <span class="qty">×${it.qty}</span>
-            </div>
-          `).join('');
-          card.innerHTML = `
-            <div class="part">${label}</div>
-            <div class="meta"><span>${escapeHtml(o.requester)}</span><span>${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span></div>
-            <div class="items-preview">${itemsHtml}</div>
-            ${o.note ? `<div class="note">${escapeHtml(o.note)}</div>` : ''}
-            <div class="actions"></div>
-          `;
-          if(interactive){
-            card.querySelectorAll('.item-line.toggleable').forEach(line => {
-              line.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                await toggleItem(o.id, line.dataset.idx);
-              });
-            });
-          }
-        }
-
-        if(!SCREEN_MODE){
-          const actions = card.querySelector('.actions');
-          (COLUMN_ACTIONS[status] || []).forEach(action => {
-            const btn = document.createElement('button');
-            btn.textContent = action.label;
-            btn.addEventListener('click', async (e) => { e.stopPropagation(); await advanceStatus(o.id, action.status); });
-            actions.appendChild(btn);
-          });
-          if(status === 'spremno'){
-            const doneBtn = document.createElement('button');
-            doneBtn.textContent = 'Issued';
-            doneBtn.className = 'danger';
-            doneBtn.addEventListener('click', async (e) => { e.stopPropagation(); await removeOrder(o.id); });
-            actions.appendChild(doneBtn);
-          }
-        }
-        body.appendChild(card);
-      });
+      list.forEach(o => body.appendChild(buildCard(o)));
     });
 
     $('last-sync').textContent = 'last synced ' + new Date().toLocaleTimeString('en-GB');
@@ -702,7 +716,7 @@
       tr.innerHTML = `
         <td>${escapeHtml(u.username)}</td>
         <td><span class="role-badge ${u.role}">${ROLE_LABEL[u.role]}</span></td>
-        <td><span class="location-badge">${escapeHtml(u.location || '')}</span></td>
+        <td>${u.location ? `<span class="location-badge">${escapeHtml(u.location)}</span>` : '<span style="color:var(--paper-dim);opacity:0.5;">—</span>'}</td>
         <td>
           <div class="row-actions">
             <button data-action="pw">Password</button>
@@ -749,11 +763,17 @@
     });
   }
 
+  function updateLocationFieldVisibility(){
+    $('location-field').style.display = $('a-role').value === 'narucilac' ? '' : 'none';
+  }
+  $('a-role').addEventListener('change', updateLocationFieldVisibility);
+  updateLocationFieldVisibility();
+
   $('add-user-btn').addEventListener('click', async () => {
     const username = $('a-username').value.trim();
     const password = $('a-password').value;
     const role = $('a-role').value;
-    const location = $('a-location').value;
+    const location = role === 'narucilac' ? $('a-location').value : null;
     const errEl = $('admin-error');
     errEl.classList.remove('show');
 
@@ -776,8 +796,9 @@
     if(SCREEN_MODE){
       document.body.classList.add('screen-mode');
       const right = $('topbar-right');
-      right.innerHTML = '<div class="user-chip"><span class="role-badge screen">Live Display · Read Only</span></div>';
+      right.innerHTML = '<div class="user-chip"><span class="role-badge screen">Live Display' + (SCREEN_LOCATION ? ' · ' + SCREEN_LOCATION : ' · Read Only') + '</span></div>';
       ['login','order','display','admin'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
+      buildBoardSkeleton();
       await refreshOrders();
       startPolling();
       return;
