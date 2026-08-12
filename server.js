@@ -45,6 +45,13 @@ function requireRole(...roles) {
   };
 }
 
+async function logEvent(orderId, action, actor, detail) {
+  await pool.query(
+    'INSERT INTO order_events (order_id, action, actor, detail, created_at) VALUES ($1,$2,$3,$4,$5)',
+    [orderId, action, actor, detail || null, Date.now()]
+  );
+}
+
 const COOKIE_OPTS = {
   httpOnly: true,
   sameSite: 'lax',
@@ -82,12 +89,12 @@ app.get('/api/me', requireAuth, (req, res) => {
 // Public, read-only board for the "screen" role — no login required.
 // Intended for a TV/tablet permanently showing the warehouse display.
 app.get('/api/public/board', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM orders ORDER BY created_at ASC');
+  const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL ORDER BY created_at ASC');
   res.json(rows);
 });
 
 app.get('/api/orders', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM orders ORDER BY created_at ASC');
+  const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL ORDER BY created_at ASC');
   res.json(rows);
 });
 
@@ -122,6 +129,8 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     [id, (serviceOrder || '').trim(), req.user.username, (note || '').trim(), safePriority, JSON.stringify(cleanItems), location, createdAt]
   );
 
+  await logEvent(id, 'created', req.user.username, (serviceOrder || '').trim() || null);
+
   res.json({ id, ticket: '#' + id.slice(-6) });
 });
 
@@ -135,19 +144,38 @@ app.patch('/api/orders/:id/items/:index', requireAuth, requireRole('magacioner',
   const items = Array.isArray(rows[0].items) ? rows[0].items : [];
   if (!items[idx]) return res.status(400).json({ error: 'Invalid item.' });
 
-  items[idx] = { ...items[idx], done: !items[idx].done };
+  const nowDone = !items[idx].done;
+  items[idx] = { ...items[idx], done: nowDone };
   const allDone = items.length > 0 && items.every((it) => it.done);
-  const status = allDone ? 'spremno' : (rows[0].status === 'spremno' ? 'u_obradi' : rows[0].status);
+  const prevStatus = rows[0].status;
+  const status = allDone ? 'spremno' : (prevStatus === 'spremno' ? 'u_obradi' : prevStatus);
 
   await pool.query('UPDATE orders SET items = $1, status = $2 WHERE id = $3', [JSON.stringify(items), status, id]);
+  await logEvent(id, nowDone ? 'item_done' : 'item_undone', req.user.username, items[idx].part);
+  if (status === 'spremno' && prevStatus !== 'spremno') {
+    await logEvent(id, 'ready', req.user.username, 'all parts checked');
+  } else if (status !== 'spremno' && prevStatus === 'spremno') {
+    await logEvent(id, 'reopened', req.user.username, items[idx].part);
+  }
+
   res.json({ ok: true, items, status });
 });
+
+const STATUS_ACTION_LABEL = {
+  u_obradi: 'claimed',
+  ceka_delove: 'waiting',
+  spremno: 'ready',
+};
 
 app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
   const { status } = req.body || {};
   if (!['novo', 'u_obradi', 'ceka_delove', 'spremno'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status.' });
   }
+
+  const prevRow = await pool.query('SELECT status FROM orders WHERE id = $1', [req.params.id]);
+  if (!prevRow.rows.length) return res.status(404).json({ error: 'Order not found.' });
+  const prevStatus = prevRow.rows[0].status;
 
   if (status === 'spremno') {
     // Marking the whole order ready also marks every individual part as done.
@@ -157,12 +185,46 @@ app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), as
   } else {
     await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
   }
+
+  const label = status === 'u_obradi' && prevStatus === 'ceka_delove' ? 'resumed' : STATUS_ACTION_LABEL[status];
+  if (label && status !== prevStatus) {
+    await logEvent(req.params.id, label, req.user.username);
+  }
+
   res.json({ ok: true });
 });
 
-app.delete('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
-  await pool.query('DELETE FROM orders WHERE id = $1', [req.params.id]);
+app.post('/api/orders/:id/issue', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
+  const { rows } = await pool.query('SELECT status FROM orders WHERE id = $1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
+
+  const issuedAt = Date.now();
+  await pool.query('UPDATE orders SET issued_by = $1, issued_at = $2 WHERE id = $3', [req.user.username, issuedAt, req.params.id]);
+  await logEvent(req.params.id, 'issued', req.user.username);
+
   res.json({ ok: true });
+});
+
+// ---------- history (admin only) ----------
+app.get('/api/history', requireAuth, requireRole('admin'), async (req, res) => {
+  const { rows: orders } = await pool.query(
+    'SELECT * FROM orders WHERE issued_at IS NOT NULL ORDER BY issued_at DESC LIMIT 200'
+  );
+  if (orders.length === 0) return res.json([]);
+
+  const ids = orders.map((o) => o.id);
+  const { rows: events } = await pool.query(
+    'SELECT * FROM order_events WHERE order_id = ANY($1) ORDER BY created_at ASC',
+    [ids]
+  );
+
+  const eventsByOrder = {};
+  events.forEach((e) => {
+    if (!eventsByOrder[e.order_id]) eventsByOrder[e.order_id] = [];
+    eventsByOrder[e.order_id].push(e);
+  });
+
+  res.json(orders.map((o) => ({ ...o, events: eventsByOrder[o.id] || [] })));
 });
 
 // ---------- user management (admin only) ----------
