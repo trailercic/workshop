@@ -177,6 +177,18 @@
   .admin-note{ font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); background: rgba(242,169,0,0.08); border:1px solid var(--amber-dim); padding:9px 11px; margin-bottom:14px; }
   .admin-note.hidden{ display:none; }
 
+  .history-item{ border: 1px solid var(--line); border-left: 4px solid var(--green); background: var(--bg); padding: 14px 16px; margin-bottom: 12px; }
+  .history-item .h-head{ display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
+  .history-item .h-title{ font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:16px; }
+  .history-item .h-meta{ font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); }
+  .history-item .h-items{ font-size:12px; color: var(--paper-dim); margin: 6px 0; }
+  .history-item .h-items span.qty{ color: var(--amber); }
+  .timeline{ list-style:none; margin: 10px 0 0; padding: 0; border-top: 1px dashed var(--line); padding-top: 10px; }
+  .timeline li{ font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); padding: 3px 0; display:flex; gap:8px; }
+  .timeline li .t-action{ color: var(--paper); text-transform:uppercase; letter-spacing:0.5px; min-width: 90px; }
+  .timeline li .t-actor{ color: var(--amber); }
+  .empty-note.history{ padding: 30px 8px; }
+
   @media (max-width: 800px){
     .board{ grid-template-columns: 1fr; }
     .row-2{ grid-template-columns: 1fr; }
@@ -316,6 +328,13 @@
     </div>
   </div>
 
+  <div id="view-history" class="view">
+    <div class="panel">
+      <h2>Order History</h2>
+      <div id="history-list"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -331,8 +350,8 @@
   let pollTimer = null;
 
   const ROLE_LABEL = { narucilac: 'Requester', magacioner: 'Warehouse', admin: 'Admin' };
-  const ROLE_VIEWS = { narucilac: ['order'], magacioner: ['display'], admin: ['order','display','admin'] };
-  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users' };
+  const ROLE_VIEWS = { narucilac: ['order'], magacioner: ['display'], admin: ['order','display','admin','history'] };
+  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users', history: 'History' };
 
   const $ = (id) => document.getElementById(id);
 
@@ -425,7 +444,7 @@
   }
 
   function setView(view){
-    ['login','order','display','admin'].forEach(v => $('view-' + v).classList.toggle('active', v === view));
+    ['login','order','display','admin','history'].forEach(v => $('view-' + v).classList.toggle('active', v === view));
     if(currentUser){
       document.querySelectorAll('#topbar-right .switch button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     }
@@ -437,6 +456,8 @@
       startPolling();
     } else if(view === 'admin'){
       refreshUsers();
+    } else if(view === 'history'){
+      refreshHistory();
     } else if(view === 'order'){
       setNextNum();
       if($('items-list').children.length === 0) resetItemRows();
@@ -552,6 +573,10 @@
 
   function clockTime(ts){
     return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function dateTime(ts){
+    return new Date(ts).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
   const COLUMN_ACTIONS = {
@@ -716,9 +741,60 @@
   }
   async function removeOrder(id){
     try{
-      await api('/api/orders/' + id, { method: 'DELETE' });
+      await api('/api/orders/' + id + '/issue', { method: 'POST' });
       await refreshOrders();
     } catch(e){ alert(e.message); }
+  }
+
+  // ---------- admin: history ----------
+  const ACTION_LABEL = {
+    created: 'Created', claimed: 'Claimed', waiting: 'Waiting for parts', resumed: 'Resumed',
+    ready: 'Marked ready', reopened: 'Reopened', issued: 'Issued',
+    item_done: 'Part checked', item_undone: 'Part unchecked',
+  };
+
+  async function refreshHistory(){
+    const list = $('history-list');
+    try{
+      const orders = await api('/api/history');
+      list.innerHTML = '';
+
+      if(orders.length === 0){
+        const empty = document.createElement('div');
+        empty.className = 'empty-note history';
+        empty.textContent = 'No issued orders yet.';
+        list.appendChild(empty);
+        return;
+      }
+
+      orders.forEach(o => {
+        const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
+        const items = Array.isArray(o.items) ? o.items : [];
+        const itemsText = items.map(it => `<span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>`).join(', ');
+
+        const timelineHtml = (o.events || []).map(e => `
+          <li>
+            <span class="t-action">${ACTION_LABEL[e.action] || escapeHtml(e.action)}</span>
+            <span class="t-actor">${escapeHtml(e.actor)}</span>
+            <span>${dateTime(Number(e.created_at))}${e.detail ? ' · ' + escapeHtml(e.detail) : ''}</span>
+          </li>
+        `).join('');
+
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.innerHTML = `
+          <div class="h-head">
+            <span class="h-title">${label}</span>
+            <span class="h-meta">${escapeHtml(o.location)} · requested by ${escapeHtml(o.requester)} · issued by ${escapeHtml(o.issued_by)} on ${dateTime(Number(o.issued_at))}</span>
+          </div>
+          <div class="h-items">${itemsText}</div>
+          <ul class="timeline">${timelineHtml}</ul>
+        `;
+        list.appendChild(div);
+      });
+    } catch(e){
+      if(e.status === 401){ logout(); }
+    }
   }
 
   // ---------- admin: user management ----------
@@ -829,7 +905,7 @@
       document.body.classList.add('screen-mode');
       const right = $('topbar-right');
       right.innerHTML = '<div class="user-chip"><span class="role-badge screen">Live Display' + (SCREEN_LOCATION ? ' · ' + SCREEN_LOCATION : ' · Read Only') + '</span></div>';
-      ['login','order','display','admin'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
+      ['login','order','display','admin','history'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
       setupLocationSwitch();
       buildBoardSkeleton();
       await refreshOrders();
