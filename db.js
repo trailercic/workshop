@@ -16,14 +16,21 @@ async function initDb() {
       username    TEXT PRIMARY KEY,
       pass_hash   TEXT NOT NULL,
       role        TEXT NOT NULL CHECK (role IN ('narucilac','magacioner','admin')),
-      location    TEXT NOT NULL DEFAULT 'SOHO' CHECK (location IN ('SOHO','MEPA')),
+      location    TEXT CHECK (location IN ('SOHO','MEPA')),
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
 
-  // Migration for installs created before the location column existed.
+  // Migration for installs created before the location column existed,
+  // and to relax it to optional (only requesters need a location).
   await pool.query(`
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'SOHO';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT;
+  `);
+  await pool.query(`
+    ALTER TABLE users ALTER COLUMN location DROP NOT NULL;
+  `);
+  await pool.query(`
+    ALTER TABLE users ALTER COLUMN location DROP DEFAULT;
   `);
 
   await pool.query(`
@@ -58,6 +65,7 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_order TEXT;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS items JSONB NOT NULL DEFAULT '[]'::jsonb;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'SOHO';`);
 
   // Migration: allow the new 'ceka_delove' (waiting for parts) status for
   // installs whose status CHECK constraint predates this value.
