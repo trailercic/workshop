@@ -113,10 +113,13 @@ app.post('/api/orders', requireAuth, async (req, res) => {
   const createdAt = Date.now();
   const safePriority = priority === 'hitno' ? 'hitno' : 'normal';
 
+  const userRow = await pool.query('SELECT location FROM users WHERE username = $1', [req.user.username]);
+  const location = userRow.rows[0]?.location || 'SOHO';
+
   await pool.query(
-    `INSERT INTO orders (id, service_order, requester, note, priority, status, items, created_at)
-     VALUES ($1,$2,$3,$4,$5,'novo',$6,$7)`,
-    [id, (serviceOrder || '').trim(), req.user.username, (note || '').trim(), safePriority, JSON.stringify(cleanItems), createdAt]
+    `INSERT INTO orders (id, service_order, requester, note, priority, status, items, location, created_at)
+     VALUES ($1,$2,$3,$4,$5,'novo',$6,$7,$8)`,
+    [id, (serviceOrder || '').trim(), req.user.username, (note || '').trim(), safePriority, JSON.stringify(cleanItems), location, createdAt]
   );
 
   res.json({ id, ticket: '#' + id.slice(-6) });
@@ -180,13 +183,18 @@ app.post('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Fill in username and password.' });
   if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   if (!['narucilac', 'magacioner', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role.' });
-  if (!['SOHO', 'MEPA'].includes(location)) return res.status(400).json({ error: 'Invalid location.' });
+
+  let safeLocation = null;
+  if (role === 'narucilac') {
+    if (!['SOHO', 'MEPA'].includes(location)) return res.status(400).json({ error: 'Invalid location.' });
+    safeLocation = location;
+  }
 
   const existing = await pool.query('SELECT username FROM users WHERE lower(username) = lower($1)', [username]);
   if (existing.rows.length) return res.status(409).json({ error: 'Username already exists.' });
 
   const hash = await bcrypt.hash(password, 10);
-  await pool.query('INSERT INTO users (username, pass_hash, role, location) VALUES ($1,$2,$3,$4)', [username.trim(), hash, role, location]);
+  await pool.query('INSERT INTO users (username, pass_hash, role, location) VALUES ($1,$2,$3,$4)', [username.trim(), hash, role, safeLocation]);
   res.json({ ok: true });
 });
 
