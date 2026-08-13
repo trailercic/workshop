@@ -132,7 +132,9 @@
   .col[data-status="ceka_delove"] .col-head{ color: var(--amber-dim); }
   .col[data-status="spremno"] .col-head{ color: var(--green); }
 
-  .col-body{ padding: 12px; display:flex; flex-direction:column; gap: 10px; min-height: 120px; }
+  .col-body{ padding: 12px; display:flex; flex-direction:column; gap: 10px; min-height: 120px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .col-body::-webkit-scrollbar{ width: 6px; }
+  .col-body::-webkit-scrollbar-thumb{ background: var(--line); border-radius: 3px; }
   .empty-note{ color: var(--paper-dim); font-size:12px; font-family: var(--font-mono); text-align:center; padding: 24px 8px; opacity:0.6; }
 
   .card{ background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--steel); padding: 12px 14px; cursor:pointer; position:relative; transition: border-color .15s, transform .1s; }
@@ -467,8 +469,26 @@
   function startPolling(){
     stopPolling();
     pollTimer = setInterval(refreshOrders, 3000);
+    if(SCREEN_MODE) startAutoScroll();
   }
   function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
+
+  // ---------- auto-scroll (screen mode only) ----------
+  let autoScrollTimer = null;
+  function startAutoScroll(){
+    if(autoScrollTimer) return;
+    autoScrollTimer = setInterval(() => {
+      document.querySelectorAll('.col-body').forEach(el => {
+        if(el.scrollHeight <= el.clientHeight + 4) return;
+        const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+        if(atBottom){
+          el.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+          el.scrollTo({ top: el.scrollTop + el.clientHeight * 0.9, behavior: 'smooth' });
+        }
+      });
+    }, 5000);
+  }
 
   // ---------- dynamic part rows ----------
   let itemRowCount = 0;
@@ -641,7 +661,19 @@
         <div class="col-body" id="col-${col.key}"></div>
       </div>
     `).join('');
+    sizeColumns();
   }
+
+  function sizeColumns(){
+    const board = $('board');
+    if(!board || board.children.length === 0) return;
+    const top = board.getBoundingClientRect().top;
+    const statusBar = document.querySelector('.status-bar');
+    const statusBarHeight = statusBar ? statusBar.offsetHeight + 16 : 0;
+    const available = Math.max(160, window.innerHeight - top - statusBarHeight - 24);
+    document.querySelectorAll('.col-body').forEach(el => { el.style.maxHeight = available + 'px'; });
+  }
+  window.addEventListener('resize', sizeColumns);
 
   function buildCard(o){
     const status = o.status;
@@ -711,6 +743,7 @@
 
       $('count-' + col.key).textContent = list.length;
       const body = $('col-' + col.key);
+      const savedScroll = body.scrollTop;
       body.innerHTML = '';
 
       if(list.length === 0){
@@ -722,6 +755,7 @@
       }
 
       list.forEach(o => body.appendChild(buildCard(o)));
+      body.scrollTop = Math.min(savedScroll, body.scrollHeight - body.clientHeight);
     });
 
     $('last-sync').textContent = 'last synced ' + new Date().toLocaleTimeString('en-GB');
