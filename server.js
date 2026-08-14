@@ -57,6 +57,38 @@ async function logEvent(orderId, action, actor, detail) {
   );
 }
 
+// ---------- live updates (Server-Sent Events) ----------
+// Broadcasts a lightweight "something changed" signal to every connected
+// screen/browser so boards refresh immediately instead of waiting for the
+// next poll. No order data is sent through this channel — clients still
+// fetch the actual data via the existing REST routes.
+const sseClients = new Set();
+
+function broadcastUpdate() {
+  for (const client of sseClients) {
+    client.write('data: update\n\n');
+  }
+}
+
+setInterval(() => {
+  for (const client of sseClients) {
+    client.write(': keep-alive\n\n');
+  }
+}, 25000);
+
+app.get('/api/events', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  res.flushHeaders();
+  res.write('data: connected\n\n');
+
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+});
+
 const COOKIE_OPTS = {
   httpOnly: true,
   sameSite: 'lax',
@@ -173,6 +205,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
 
   await logEvent(id, 'created', req.user.username, (serviceOrder || '').trim() || null);
 
+  broadcastUpdate();
   res.json({ id, ticket: '#' + id.slice(-6) });
 });
 
@@ -195,6 +228,7 @@ app.patch('/api/orders/:id/items/:index', requireAuth, requireRole('magacioner',
   await pool.query('UPDATE orders SET items = $1 WHERE id = $2', [JSON.stringify(items), id]);
   await logEvent(id, 'item_marked', req.user.username, `${items[idx].part}: ${nextState}`);
 
+  broadcastUpdate();
   res.json({ ok: true, items });
 });
 
@@ -240,6 +274,7 @@ app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), as
     await logEvent(req.params.id, label, req.user.username);
   }
 
+  broadcastUpdate();
   res.json({ ok: true });
 });
 
@@ -253,6 +288,7 @@ app.patch('/api/orders/:id/note', requireAuth, requireRole('magacioner', 'admin'
   await pool.query('UPDATE orders SET note = $1 WHERE id = $2', [cleanNote, req.params.id]);
   await logEvent(req.params.id, 'note_updated', req.user.username, cleanNote || '(cleared)');
 
+  broadcastUpdate();
   res.json({ ok: true, note: cleanNote });
 });
 
@@ -264,6 +300,7 @@ app.post('/api/orders/:id/issue', requireAuth, requireRole('magacioner', 'admin'
   await pool.query('UPDATE orders SET issued_by = $1, issued_at = $2 WHERE id = $3', [req.user.username, issuedAt, req.params.id]);
   await logEvent(req.params.id, 'issued', req.user.username);
 
+  broadcastUpdate();
   res.json({ ok: true });
 });
 
