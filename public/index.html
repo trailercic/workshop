@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Parts // Workshop</title>
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="googlebot" content="noindex, nofollow">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
 
@@ -326,6 +328,11 @@
         </div>
         <button class="submit-btn" id="add-user-btn">Add User</button>
         <div class="login-error" id="admin-error"></div>
+      </div>
+      <div class="panel" style="grid-column: 1 / -1;">
+        <h2>Backup</h2>
+        <p style="font-size:12px; color:var(--paper-dim); margin:0 0 12px;">The free database plan has no automatic backups. Download a full snapshot (users, orders, history) periodically and save it somewhere safe.</p>
+        <button class="submit-btn" id="backup-btn" style="width:auto; padding:10px 20px;">Download Backup</button>
       </div>
     </div>
   </div>
@@ -926,6 +933,28 @@
     } catch(e){
       errEl.textContent = e.message;
       errEl.classList.add('show');
+    }
+  });
+
+  $('backup-btn').addEventListener('click', async () => {
+    $('backup-btn').disabled = true;
+    $('backup-btn').textContent = 'Preparing...';
+    try{
+      const data = await api('/api/backup');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch(e){
+      alert(e.message);
+    } finally {
+      $('backup-btn').disabled = false;
+      $('backup-btn').textContent = 'Download Backup';
     }
   });
 
