@@ -152,7 +152,7 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const part = (raw && raw.part ? String(raw.part) : '').trim();
     if (!part) continue;
     const qty = Math.max(1, parseInt(raw.qty, 10) || 1);
-    cleanItems.push({ part, qty, done: false });
+    cleanItems.push({ part, qty, state: 'none' });
   }
   if (cleanItems.length === 0) {
     return res.status(400).json({ error: 'Add at least one part with a name.' });
@@ -176,31 +176,26 @@ app.post('/api/orders', requireAuth, async (req, res) => {
   res.json({ id, ticket: '#' + id.slice(-6) });
 });
 
+const ITEM_STATE_CYCLE = ['none', 'green', 'yellow', 'red'];
+
 app.patch('/api/orders/:id/items/:index', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
   const { id, index } = req.params;
   const idx = parseInt(index, 10);
 
-  const { rows } = await pool.query('SELECT items, status FROM orders WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT items FROM orders WHERE id = $1', [id]);
   if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
 
   const items = Array.isArray(rows[0].items) ? rows[0].items : [];
   if (!items[idx]) return res.status(400).json({ error: 'Invalid item.' });
 
-  const nowDone = !items[idx].done;
-  items[idx] = { ...items[idx], done: nowDone };
-  const allDone = items.length > 0 && items.every((it) => it.done);
-  const prevStatus = rows[0].status;
-  const status = allDone ? 'spremno' : (prevStatus === 'spremno' ? 'u_obradi' : prevStatus);
+  const currentState = items[idx].state || 'none';
+  const nextState = ITEM_STATE_CYCLE[(ITEM_STATE_CYCLE.indexOf(currentState) + 1) % ITEM_STATE_CYCLE.length];
+  items[idx] = { part: items[idx].part, qty: items[idx].qty, state: nextState };
 
-  await pool.query('UPDATE orders SET items = $1, status = $2 WHERE id = $3', [JSON.stringify(items), status, id]);
-  await logEvent(id, nowDone ? 'item_done' : 'item_undone', req.user.username, items[idx].part);
-  if (status === 'spremno' && prevStatus !== 'spremno') {
-    await logEvent(id, 'ready', req.user.username, 'all parts checked');
-  } else if (status !== 'spremno' && prevStatus === 'spremno') {
-    await logEvent(id, 'reopened', req.user.username, items[idx].part);
-  }
+  await pool.query('UPDATE orders SET items = $1 WHERE id = $2', [JSON.stringify(items), id]);
+  await logEvent(id, 'item_marked', req.user.username, `${items[idx].part}: ${nextState}`);
 
-  res.json({ ok: true, items, status });
+  res.json({ ok: true, items });
 });
 
 const STATUS_ACTION_LABEL = {
@@ -219,14 +214,7 @@ app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), as
   if (!prevRow.rows.length) return res.status(404).json({ error: 'Order not found.' });
   const prevStatus = prevRow.rows[0].status;
 
-  if (status === 'spremno') {
-    // Marking the whole order ready also marks every individual part as done.
-    const { rows } = await pool.query('SELECT items FROM orders WHERE id = $1', [req.params.id]);
-    const items = (rows.length && Array.isArray(rows[0].items)) ? rows[0].items.map((it) => ({ ...it, done: true })) : [];
-    await pool.query('UPDATE orders SET status = $1, items = $2 WHERE id = $3', [status, JSON.stringify(items), req.params.id]);
-  } else {
-    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
-  }
+  await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
 
   const label = status === 'u_obradi' && prevStatus === 'ceka_delove' ? 'resumed' : STATUS_ACTION_LABEL[status];
   if (label && status !== prevStatus) {
@@ -234,6 +222,19 @@ app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), as
   }
 
   res.json({ ok: true });
+});
+
+app.patch('/api/orders/:id/note', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
+  const { note } = req.body || {};
+  const cleanNote = (note || '').toString().trim();
+
+  const { rows } = await pool.query('SELECT id FROM orders WHERE id = $1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
+
+  await pool.query('UPDATE orders SET note = $1 WHERE id = $2', [cleanNote, req.params.id]);
+  await logEvent(req.params.id, 'note_updated', req.user.username, cleanNote || '(cleared)');
+
+  res.json({ ok: true, note: cleanNote });
 });
 
 app.post('/api/orders/:id/issue', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
