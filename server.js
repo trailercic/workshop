@@ -7,6 +7,7 @@ const path = require('path');
 const { pool, initDb } = require('./db');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -15,6 +16,10 @@ if (!JWT_SECRET) {
 }
 
 app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  next();
+});
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -60,17 +65,54 @@ const COOKIE_OPTS = {
 };
 
 // ---------- auth routes ----------
+// Simple in-memory brute-force guard: after 6 failed attempts from the same
+// IP within 10 minutes, further logins are blocked for that window.
+const loginAttempts = new Map(); // ip -> { count, firstAttempt }
+const LOGIN_MAX_ATTEMPTS = 6;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+
+function isRateLimited(ip) {
+  const entry = loginAttempts.get(ip);
+  if (!entry) return false;
+  if (Date.now() - entry.firstAttempt > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(ip);
+    return false;
+  }
+  return entry.count >= LOGIN_MAX_ATTEMPTS;
+}
+
+function recordFailedAttempt(ip) {
+  const entry = loginAttempts.get(ip);
+  if (!entry || Date.now() - entry.firstAttempt > LOGIN_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAttempt: Date.now() });
+  } else {
+    entry.count += 1;
+  }
+}
+
 app.post('/api/login', async (req, res) => {
+  const ip = req.ip;
+  if (isRateLimited(ip)) {
+    return res.status(429).json({ error: 'Too many failed attempts. Try again in a few minutes.' });
+  }
+
   const { username, password } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Enter your username and password.' });
 
   const { rows } = await pool.query('SELECT * FROM users WHERE lower(username) = lower($1)', [username]);
   const user = rows[0];
-  if (!user) return res.status(401).json({ error: 'Incorrect username or password.' });
+  if (!user) {
+    recordFailedAttempt(ip);
+    return res.status(401).json({ error: 'Incorrect username or password.' });
+  }
 
   const ok = await bcrypt.compare(password, user.pass_hash);
-  if (!ok) return res.status(401).json({ error: 'Incorrect username or password.' });
+  if (!ok) {
+    recordFailedAttempt(ip);
+    return res.status(401).json({ error: 'Incorrect username or password.' });
+  }
 
+  loginAttempts.delete(ip);
   const token = signToken(user);
   res.cookie('token', token, COOKIE_OPTS);
   res.json({ username: user.username, role: user.role });
@@ -206,6 +248,27 @@ app.post('/api/orders/:id/issue', requireAuth, requireRole('magacioner', 'admin'
 });
 
 // ---------- history (admin only) ----------
+// ---------- backup (admin only) ----------
+// Supabase's free tier has no automated backups, so this lets an admin
+// download a full snapshot of the data on demand.
+app.get('/api/backup', requireAuth, requireRole('admin'), async (req, res) => {
+  const [usersRes, ordersRes, eventsRes] = await Promise.all([
+    pool.query('SELECT username, role, location, created_at FROM users ORDER BY created_at ASC'),
+    pool.query('SELECT * FROM orders ORDER BY created_at ASC'),
+    pool.query('SELECT * FROM order_events ORDER BY created_at ASC'),
+  ]);
+
+  const backup = {
+    generated_at: new Date().toISOString(),
+    users: usersRes.rows,
+    orders: ordersRes.rows,
+    order_events: eventsRes.rows,
+  };
+
+  res.setHeader('Content-Disposition', `attachment; filename="backup-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.json(backup);
+});
+
 app.get('/api/history', requireAuth, requireRole('admin'), async (req, res) => {
   const { rows: orders } = await pool.query(
     'SELECT * FROM orders WHERE issued_at IS NOT NULL ORDER BY issued_at DESC LIMIT 200'
