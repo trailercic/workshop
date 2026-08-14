@@ -804,7 +804,7 @@
         doneBtn.addEventListener('click', async (e) => { e.stopPropagation(); await removeOrder(o.id); });
         actions.appendChild(doneBtn);
       }
-      if(currentUser && currentUser.role === 'magacioner'){
+      if(currentUser && (currentUser.role === 'magacioner' || currentUser.role === 'admin')){
         const printBtn = document.createElement('button');
         printBtn.textContent = 'Print';
         printBtn.addEventListener('click', (e) => { e.stopPropagation(); printTicket(o); });
