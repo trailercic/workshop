@@ -204,8 +204,15 @@ const STATUS_ACTION_LABEL = {
   spremno: 'ready',
 };
 
+const STATUS_DISPLAY_NAME = {
+  novo: 'New',
+  u_obradi: 'In Progress',
+  ceka_delove: 'Waiting for Parts',
+  spremno: 'Ready',
+};
+
 app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
-  const { status } = req.body || {};
+  const { status, expectedStatus } = req.body || {};
   if (!['novo', 'u_obradi', 'ceka_delove', 'spremno'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status.' });
   }
@@ -213,6 +220,18 @@ app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), as
   const prevRow = await pool.query('SELECT status FROM orders WHERE id = $1', [req.params.id]);
   if (!prevRow.rows.length) return res.status(404).json({ error: 'Order not found.' });
   const prevStatus = prevRow.rows[0].status;
+
+  if (expectedStatus && expectedStatus !== prevStatus) {
+    const lastEvent = await pool.query(
+      'SELECT actor FROM order_events WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [req.params.id]
+    );
+    const actor = lastEvent.rows[0]?.actor || 'someone else';
+    return res.status(409).json({
+      error: `Already updated by ${actor} — now: ${STATUS_DISPLAY_NAME[prevStatus] || prevStatus}.`,
+      currentStatus: prevStatus,
+    });
+  }
 
   await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
 
