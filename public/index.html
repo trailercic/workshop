@@ -362,6 +362,8 @@
 <script>
 (function(){
   let orders = [];
+  const openNotePanels = new Set(); // order ids whose note panel is currently expanded
+  const noteDrafts = new Map(); // order id -> unsaved note text being typed
   const SCREEN_PATH_PARTS = window.location.pathname.replace(/\/+$/, '').split('/').filter(Boolean);
   const SCREEN_MODE = SCREEN_PATH_PARTS[0] === 'screen';
   const SCREEN_LOCATION = (SCREEN_MODE && SCREEN_PATH_PARTS[1] && ['soho', 'mepa'].includes(SCREEN_PATH_PARTS[1].toLowerCase()))
@@ -721,14 +723,16 @@
       `;
       }).join('');
       const canEditNote = !SCREEN_MODE;
+      const panelOpen = openNotePanels.has(o.id);
+      const draftText = noteDrafts.has(o.id) ? noteDrafts.get(o.id) : (o.note || '');
       card.innerHTML = `
         <div class="part">${label}</div>
         <div class="meta"><span>${escapeHtml(o.requester)}</span><span>${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span></div>
         <div class="items-preview">${itemsHtml}</div>
         ${o.note ? `<button type="button" class="note-toggle">📝 Note</button>` : (canEditNote ? `<button type="button" class="note-toggle">+ Add Note</button>` : '')}
-        <div class="note-panel hidden">
+        <div class="note-panel${panelOpen ? '' : ' hidden'}">
           ${canEditNote
-            ? `<textarea class="note-input" placeholder="Add a note...">${escapeHtml(o.note || '')}</textarea><button type="button" class="note-save">Save</button>`
+            ? `<textarea class="note-input" placeholder="Add a note...">${escapeHtml(draftText)}</textarea><button type="button" class="note-save">Save</button>`
             : `<div class="note">${escapeHtml(o.note || '')}</div>`}
         </div>
         <div class="actions"></div>
@@ -745,8 +749,13 @@
       if(noteToggleBtn){
         noteToggleBtn.addEventListener('click', (e) => {
           e.stopPropagation();
+          if(openNotePanels.has(o.id)) openNotePanels.delete(o.id); else openNotePanels.add(o.id);
           card.querySelector('.note-panel').classList.toggle('hidden');
         });
+      }
+      const noteInput = card.querySelector('.note-input');
+      if(noteInput){
+        noteInput.addEventListener('input', () => { noteDrafts.set(o.id, noteInput.value); });
       }
       const noteSaveBtn = card.querySelector('.note-save');
       if(noteSaveBtn){
@@ -820,6 +829,7 @@
   async function saveNote(id, note){
     try{
       await api('/api/orders/' + id + '/note', { method: 'PATCH', body: JSON.stringify({ note }) });
+      noteDrafts.delete(id);
       await refreshOrders();
     } catch(e){ alert(e.message); }
   }
