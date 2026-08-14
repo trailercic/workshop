@@ -488,9 +488,14 @@
     }
   }
 
+  function isEditingNote(){
+    const active = document.activeElement;
+    return !!(active && active.classList && active.classList.contains('note-input'));
+  }
+
   function startPolling(){
     stopPolling();
-    pollTimer = setInterval(refreshOrders, 3000);
+    pollTimer = setInterval(() => { if(!isEditingNote()) refreshOrders(); }, 60000);
     if(SCREEN_MODE) startAutoScroll();
   }
   function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
@@ -756,6 +761,7 @@
       const noteInput = card.querySelector('.note-input');
       if(noteInput){
         noteInput.addEventListener('input', () => { noteDrafts.set(o.id, noteInput.value); });
+        noteInput.addEventListener('blur', () => { refreshOrders(); });
       }
       const noteSaveBtn = card.querySelector('.note-save');
       if(noteSaveBtn){
@@ -772,7 +778,7 @@
       (COLUMN_ACTIONS[status] || []).forEach(action => {
         const btn = document.createElement('button');
         btn.textContent = action.label;
-        btn.addEventListener('click', async (e) => { e.stopPropagation(); await advanceStatus(o.id, action.status); });
+        btn.addEventListener('click', async (e) => { e.stopPropagation(); await advanceStatus(o.id, action.status, o.status); });
         actions.appendChild(btn);
       });
       if(status === 'spremno'){
@@ -814,11 +820,14 @@
     $('last-sync').textContent = 'last synced ' + new Date().toLocaleTimeString('en-GB');
   }
 
-  async function advanceStatus(id, newStatus){
+  async function advanceStatus(id, newStatus, expectedStatus){
     try{
-      await api('/api/orders/' + id, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
+      await api('/api/orders/' + id, { method: 'PATCH', body: JSON.stringify({ status: newStatus, expectedStatus }) });
       await refreshOrders();
-    } catch(e){ alert(e.message); }
+    } catch(e){
+      alert(e.message);
+      await refreshOrders();
+    }
   }
   async function toggleItem(id, index){
     try{
