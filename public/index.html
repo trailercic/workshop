@@ -493,12 +493,27 @@
     return !!(active && active.classList && active.classList.contains('note-input'));
   }
 
+  let sseSource = null;
+  function startLiveUpdates(){
+    stopLiveUpdates();
+    try{
+      sseSource = new EventSource('/api/events');
+      sseSource.onmessage = () => { if(!isEditingNote()) refreshOrders(); };
+      sseSource.onerror = () => { /* browser auto-reconnects; the 60s poll below covers any gap */ };
+    } catch(e){ /* SSE unsupported or blocked — polling still covers updates */ }
+  }
+  function stopLiveUpdates(){ if(sseSource){ sseSource.close(); sseSource = null; } }
+
   function startPolling(){
     stopPolling();
     pollTimer = setInterval(() => { if(!isEditingNote()) refreshOrders(); }, 60000);
+    startLiveUpdates();
     if(SCREEN_MODE) startAutoScroll();
   }
-  function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
+  function stopPolling(){
+    if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+    stopLiveUpdates();
+  }
 
   // ---------- auto-scroll (screen mode only) ----------
   let autoScrollTimer = null;
