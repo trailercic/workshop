@@ -108,6 +108,7 @@
   .items-preview .item-line.state-none .dot{ background: transparent; }
   .items-preview .item-line.state-green{ border-left-color: var(--green); }
   .items-preview .item-line.state-green .dot{ background: var(--green); border-color: var(--green); }
+  .items-preview .item-line.state-green span:first-child{ text-decoration: line-through; opacity: 0.75; }
   .items-preview .item-line.state-yellow{ border-left-color: var(--yellow); }
   .items-preview .item-line.state-yellow .dot{ background: var(--yellow); border-color: var(--yellow); }
   .items-preview .item-line.state-red{ border-left-color: var(--red); }
@@ -734,7 +735,7 @@
       const items = Array.isArray(o.items) ? o.items : [];
       const interactive = (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
       const itemsHtml = items.map((it, idx) => {
-        const state = it.state || 'none';
+        const state = status === 'spremno' ? 'green' : (it.state || 'none');
         return `
         <div class="item-line${interactive ? ' toggleable' : ''} state-${state}" ${interactive ? `data-idx="${idx}"` : ''}>
           <span><span class="dot"></span>${escapeHtml(it.part)}</span>
@@ -803,9 +804,58 @@
         doneBtn.addEventListener('click', async (e) => { e.stopPropagation(); await removeOrder(o.id); });
         actions.appendChild(doneBtn);
       }
+      if(currentUser && currentUser.role === 'magacioner'){
+        const printBtn = document.createElement('button');
+        printBtn.textContent = 'Print';
+        printBtn.addEventListener('click', (e) => { e.stopPropagation(); printTicket(o); });
+        actions.appendChild(printBtn);
+      }
     }
 
     return card;
+  }
+
+  function printTicket(o){
+    const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
+    const items = Array.isArray(o.items) ? o.items : [];
+    const forceGreen = o.status === 'spremno';
+    const itemsRows = items.map(it => {
+      const isGreen = forceGreen || it.state === 'green';
+      const stateNote = !forceGreen && it.state && it.state !== 'none' && it.state !== 'green' ? ` (${it.state})` : '';
+      const partText = escapeHtml(it.part) + stateNote;
+      return `<tr><td>${isGreen ? `<s>${partText}</s>` : partText}</td><td style="text-align:right;">×${it.qty}</td></tr>`;
+    }).join('') || '<tr><td colspan="2">(no parts listed)</td></tr>';
+
+    const html = `
+      <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Ticket ${label}</title>
+      <style>
+        body{ font-family: Arial, Helvetica, sans-serif; color:#111; padding: 24px; max-width: 420px; }
+        h1{ font-size:20px; margin:0 0 4px; }
+        .sub{ font-size:12px; color:#555; margin-bottom:16px; }
+        table{ width:100%; border-collapse:collapse; margin:12px 0; }
+        td{ padding:6px 4px; border-bottom:1px solid #ddd; font-size:14px; }
+        .meta{ font-size:13px; margin:4px 0; }
+        .meta b{ display:inline-block; width:110px; }
+        .note{ margin-top:14px; padding:10px; border:1px dashed #999; font-size:13px; }
+        .urgent{ display:inline-block; margin-top:6px; padding:2px 8px; border:1px solid #c1440e; color:#c1440e; font-size:11px; letter-spacing:1px; }
+      </style></head><body>
+        <h1>${label}</h1>
+        <div class="sub">Printed ${new Date().toLocaleString('en-GB')}</div>
+        <div class="meta"><b>Requester:</b> ${escapeHtml(o.requester)}</div>
+        <div class="meta"><b>Location:</b> ${escapeHtml(o.location || '')}</div>
+        <div class="meta"><b>Ordered:</b> ${new Date(Number(o.created_at)).toLocaleString('en-GB')}</div>
+        ${o.priority === 'hitno' ? '<div class="urgent">URGENT</div>' : ''}
+        <table><thead><tr><td><b>Part</b></td><td style="text-align:right;"><b>Qty</b></td></tr></thead><tbody>${itemsRows}</tbody></table>
+        ${o.note ? `<div class="note"><b>Note:</b> ${escapeHtml(o.note)}</div>` : ''}
+        <script>window.onload = () => { window.print(); };<\/script>
+      </body></html>
+    `;
+
+    const win = window.open('', '_blank', 'width=480,height=640');
+    if(!win){ alert('Please allow pop-ups to print this ticket.'); return; }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
   }
 
   function renderBoard(){
