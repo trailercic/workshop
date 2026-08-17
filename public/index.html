@@ -819,7 +819,7 @@
       card.appendChild(lockBadge);
     }
 
-    if(allowActions && !SCREEN_MODE){
+    if((allowActions || status === 'novo') && !SCREEN_MODE){
       const actions = card.querySelector('.actions');
       (COLUMN_ACTIONS[status] || []).forEach(action => {
         const btn = document.createElement('button');
