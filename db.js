@@ -71,6 +71,10 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS issued_by TEXT;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS issued_at BIGINT;`);
 
+  // Tracks when an order entered the Ready column, so it can be
+  // auto-issued after sitting there untouched for too long.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ready_at BIGINT;`);
+
   // Full audit trail: one row per action taken on an order.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_events (
