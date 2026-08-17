@@ -646,6 +646,7 @@
     novo: [ { label: 'Start', status: 'u_obradi' } ],
     u_obradi: [ { label: 'Waiting for Parts', status: 'ceka_delove' }, { label: 'Ready', status: 'spremno' } ],
     ceka_delove: [ { label: 'Resume', status: 'u_obradi' }, { label: 'Ready', status: 'spremno' } ],
+    spremno: [ { label: 'Back to In Progress', status: 'u_obradi' } ],
   };
 
   async function refreshOrders(){
@@ -829,15 +830,18 @@
     const html = `
       <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Ticket ${label}</title>
       <style>
-        body{ font-family: Arial, Helvetica, sans-serif; color:#111; padding: 24px; max-width: 420px; }
-        h1{ font-size:20px; margin:0 0 4px; }
-        .sub{ font-size:12px; color:#555; margin-bottom:16px; }
-        table{ width:100%; border-collapse:collapse; margin:12px 0; }
-        td{ padding:6px 4px; border-bottom:1px solid #ddd; font-size:14px; }
-        .meta{ font-size:13px; margin:4px 0; }
-        .meta b{ display:inline-block; width:110px; }
-        .note{ margin-top:14px; padding:10px; border:1px dashed #999; font-size:13px; }
-        .urgent{ display:inline-block; margin-top:6px; padding:2px 8px; border:1px solid #c1440e; color:#c1440e; font-size:11px; letter-spacing:1px; }
+        @page{ size: 4in 6in; margin: 0.15in; }
+        *{ box-sizing:border-box; }
+        html,body{ width:4in; }
+        body{ font-family: Arial, Helvetica, sans-serif; color:#111; padding: 0; margin:0; }
+        h1{ font-size:18px; margin:0 0 3px; }
+        .sub{ font-size:10px; color:#555; margin-bottom:10px; }
+        table{ width:100%; border-collapse:collapse; margin:8px 0; }
+        td{ padding:4px 3px; border-bottom:1px solid #ddd; font-size:12px; }
+        .meta{ font-size:11px; margin:2px 0; }
+        .meta b{ display:inline-block; width:80px; }
+        .note{ margin-top:10px; padding:8px; border:1px dashed #999; font-size:11px; }
+        .urgent{ display:inline-block; margin-top:5px; padding:2px 7px; border:1px solid #c1440e; color:#c1440e; font-size:10px; letter-spacing:1px; }
       </style></head><body>
         <h1>${label}</h1>
         <div class="sub">Printed ${new Date().toLocaleString('en-GB')}</div>
@@ -851,7 +855,7 @@
       </body></html>
     `;
 
-    const win = window.open('', '_blank', 'width=480,height=640');
+    const win = window.open('', '_blank', 'width=420,height=620');
     if(!win){ alert('Please allow pop-ups to print this ticket.'); return; }
     win.document.open();
     win.document.write(html);
@@ -917,7 +921,8 @@
   // ---------- admin: history ----------
   const ACTION_LABEL = {
     created: 'Created', claimed: 'Claimed', waiting: 'Waiting for parts', resumed: 'Resumed',
-    ready: 'Marked ready', issued: 'Issued', item_marked: 'Part marked', note_updated: 'Note updated',
+    ready: 'Marked ready', reopened: 'Sent back to progress', issued: 'Issued',
+    item_marked: 'Part marked', note_updated: 'Note updated',
   };
 
   async function refreshHistory(){
