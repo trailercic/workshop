@@ -267,9 +267,18 @@ app.patch('/api/orders/:id', requireAuth, requireRole('magacioner', 'admin'), as
     });
   }
 
-  await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
+  if (status === 'spremno' && prevStatus !== 'spremno') {
+    await pool.query('UPDATE orders SET status = $1, ready_at = $2 WHERE id = $3', [status, Date.now(), req.params.id]);
+  } else if (prevStatus === 'spremno' && status !== 'spremno') {
+    await pool.query('UPDATE orders SET status = $1, ready_at = NULL WHERE id = $2', [status, req.params.id]);
+  } else {
+    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
+  }
 
-  const label = status === 'u_obradi' && prevStatus === 'ceka_delove' ? 'resumed' : STATUS_ACTION_LABEL[status];
+  const label =
+    status === 'u_obradi' && prevStatus === 'ceka_delove' ? 'resumed' :
+    status === 'u_obradi' && prevStatus === 'spremno' ? 'reopened' :
+    STATUS_ACTION_LABEL[status];
   if (label && status !== prevStatus) {
     await logEvent(req.params.id, label, req.user.username);
   }
@@ -408,9 +417,33 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ---------- auto-issue orders left sitting in Ready too long ----------
+const READY_AUTO_ISSUE_MS = 60 * 60 * 1000; // 1 hour
+const AUTO_ISSUE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // check every 5 minutes
+
+async function autoIssueStaleReadyOrders() {
+  try {
+    const cutoff = Date.now() - READY_AUTO_ISSUE_MS;
+    const { rows } = await pool.query(
+      "SELECT id FROM orders WHERE status = 'spremno' AND issued_at IS NULL AND ready_at IS NOT NULL AND ready_at <= $1",
+      [cutoff]
+    );
+    if (rows.length === 0) return;
+
+    for (const row of rows) {
+      await pool.query('UPDATE orders SET issued_by = $1, issued_at = $2 WHERE id = $3', ['auto', Date.now(), row.id]);
+      await logEvent(row.id, 'issued', 'auto', 'Automatically issued after 1 hour in Ready');
+    }
+    broadcastUpdate();
+  } catch (err) {
+    console.error('Auto-issue check failed:', err);
+  }
+}
+
 initDb()
   .then(() => {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    setInterval(autoIssueStaleReadyOrders, AUTO_ISSUE_CHECK_INTERVAL_MS);
   })
   .catch((err) => {
     console.error('Database connection error:', err);
