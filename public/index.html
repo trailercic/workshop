@@ -150,6 +150,7 @@
   .card:hover{ transform: translateY(-1px); border-color: var(--amber); }
   .card.urgent{ border-left-color: var(--red); }
   .card.urgent::after{ content:"URGENT"; position:absolute; top:8px; right:10px; font-family: var(--font-mono); font-size:10px; letter-spacing:1px; color: var(--red); border:1px solid var(--red); padding:1px 5px; transform: rotate(4deg); }
+  .lock-badge{ margin-top:8px; display:inline-block; font-family: var(--font-mono); font-size:10px; letter-spacing:0.5px; color: var(--amber); border:1px solid var(--amber-dim); padding:3px 7px; border-radius:2px; }
   .card .part{ font-family: var(--font-display); font-size: 16px; text-transform: uppercase; margin-bottom:4px; padding-right: 50px; }
   .card .meta{ font-family: var(--font-mono); font-size: 11px; color: var(--paper-dim); display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
   .card .note{ font-size:12px; color: var(--paper-dim); font-style:italic; padding:6px 8px; background: var(--panel-raised); border-radius:2px; border-left: 2px solid var(--amber-dim); }
@@ -740,7 +741,7 @@
   }
   window.addEventListener('resize', sizeColumns);
 
-  function buildCard(o){
+  function buildCard(o, { allowActions = false } = {}){
     const status = o.status;
     const card = document.createElement('div');
     card.className = 'card' + (o.priority === 'hitno' ? ' urgent' : '');
@@ -755,7 +756,7 @@
       `;
     } else {
       const items = Array.isArray(o.items) ? o.items : [];
-      const interactive = (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
+      const interactive = allowActions && (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
       const itemsHtml = items.map((it, idx) => {
         const state = status === 'spremno' ? 'green' : (it.state || 'none');
         return `
@@ -765,7 +766,7 @@
         </div>
       `;
       }).join('');
-      const canEditNote = !SCREEN_MODE;
+      const canEditNote = allowActions && !SCREEN_MODE;
       const panelOpen = openNotePanels.has(o.id);
       const draftText = noteDrafts.has(o.id) ? noteDrafts.get(o.id) : (o.note || '');
       card.innerHTML = `
@@ -811,7 +812,14 @@
       }
     }
 
-    if(!SCREEN_MODE){
+    if(o.locked_by && !(currentUser && o.locked_by === currentUser.username)){
+      const lockBadge = document.createElement('div');
+      lockBadge.className = 'lock-badge';
+      lockBadge.textContent = '🔒 ' + o.locked_by;
+      card.appendChild(lockBadge);
+    }
+
+    if(allowActions && !SCREEN_MODE){
       const actions = card.querySelector('.actions');
       (COLUMN_ACTIONS[status] || []).forEach(action => {
         const btn = document.createElement('button');
@@ -925,22 +933,37 @@
   // ---------- ticket detail modal ----------
   let modalOrderId = null;
 
-  function openTicketModal(id){
-    modalOrderId = id;
+  async function openTicketModal(id){
     const o = orders.find(x => x.id === id);
     if(!o) return;
+
+    try{
+      await api('/api/orders/' + id + '/lock', { method: 'POST' });
+    } catch(e){
+      alert(e.message || 'This ticket is currently open by someone else.');
+      await refreshOrders();
+      return;
+    }
+
+    modalOrderId = id;
     renderModalContent(o);
     $('ticket-modal').classList.remove('hidden');
+    await refreshOrders();
   }
 
-  function closeTicketModal(){
+  async function closeTicketModal(){
     const textarea = document.querySelector('#modal-panel-content .note-input');
     if(textarea && modalOrderId && noteDrafts.has(modalOrderId)){
-      saveNote(modalOrderId, textarea.value);
+      await saveNote(modalOrderId, textarea.value);
     }
+    const idToUnlock = modalOrderId;
     modalOrderId = null;
     $('ticket-modal').classList.add('hidden');
     $('modal-panel-content').innerHTML = '';
+    if(idToUnlock){
+      try{ await api('/api/orders/' + idToUnlock + '/unlock', { method: 'POST' }); } catch(e){ /* best effort */ }
+      await refreshOrders();
+    }
   }
 
   function renderModalContent(o){
@@ -949,7 +972,7 @@
     const wasEditingNote = focused && focused.classList && focused.classList.contains('note-input');
     if(wasEditingNote) return; // don't yank the field out from under an active typist
     content.innerHTML = '';
-    content.appendChild(buildCard(o));
+    content.appendChild(buildCard(o, { allowActions: true }));
   }
 
   $('modal-close-btn').addEventListener('click', closeTicketModal);
@@ -958,6 +981,11 @@
   });
   document.addEventListener('keydown', (e) => {
     if(e.key === 'Escape' && modalOrderId) closeTicketModal();
+  });
+  window.addEventListener('beforeunload', () => {
+    if(modalOrderId){
+      navigator.sendBeacon('/api/orders/' + modalOrderId + '/unlock');
+    }
   });
 
   async function advanceStatus(id, newStatus, expectedStatus){
