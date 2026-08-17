@@ -57,6 +57,27 @@ async function logEvent(orderId, action, actor, detail) {
   );
 }
 
+// ---------- ticket locks (in-memory, so only one person edits at a time) ----------
+const ticketLocks = new Map(); // orderId -> { username, lockedAt }
+const LOCK_TIMEOUT_MS = 5 * 60 * 1000; // stale locks (crashed tab, lost connection) expire after 5 min
+
+function getActiveLock(orderId) {
+  const lock = ticketLocks.get(orderId);
+  if (!lock) return null;
+  if (Date.now() - lock.lockedAt > LOCK_TIMEOUT_MS) {
+    ticketLocks.delete(orderId);
+    return null;
+  }
+  return lock;
+}
+
+function attachLockInfo(rows) {
+  return rows.map((r) => {
+    const lock = getActiveLock(r.id);
+    return { ...r, locked_by: lock ? lock.username : null };
+  });
+}
+
 // ---------- live updates (Server-Sent Events) ----------
 // Broadcasts a lightweight "something changed" signal to every connected
 // screen/browser so boards refresh immediately instead of waiting for the
@@ -164,12 +185,33 @@ app.get('/api/me', requireAuth, (req, res) => {
 // Intended for a TV/tablet permanently showing the warehouse display.
 app.get('/api/public/board', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL ORDER BY created_at ASC');
-  res.json(rows);
+  res.json(attachLockInfo(rows));
 });
 
 app.get('/api/orders', requireAuth, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL ORDER BY created_at ASC');
-  res.json(rows);
+  res.json(attachLockInfo(rows));
+});
+
+app.post('/api/orders/:id/lock', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
+  const id = req.params.id;
+  const existing = getActiveLock(id);
+  if (existing && existing.username !== req.user.username) {
+    return res.status(409).json({ error: `Currently open by ${existing.username}.`, lockedBy: existing.username });
+  }
+  ticketLocks.set(id, { username: req.user.username, lockedAt: Date.now() });
+  broadcastUpdate();
+  res.json({ ok: true });
+});
+
+app.post('/api/orders/:id/unlock', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
+  const id = req.params.id;
+  const existing = ticketLocks.get(id);
+  if (existing && existing.username === req.user.username) {
+    ticketLocks.delete(id);
+  }
+  broadcastUpdate();
+  res.json({ ok: true });
 });
 
 app.post('/api/orders', requireAuth, async (req, res) => {
