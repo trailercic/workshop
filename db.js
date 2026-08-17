@@ -8,6 +8,17 @@ if (!process.env.DATABASE_URL) {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
+  max: 5,
+  idleTimeoutMillis: 10000,
+  keepAlive: true,
+});
+
+// Without this handler, an unexpected dropped connection (e.g. Supabase's
+// pooler closing an idle connection) throws an uncaught 'error' event and
+// crashes the whole Node process. Logging it instead lets the pool quietly
+// open a fresh connection for the next query.
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle database client:', err.message);
 });
 
 async function initDb() {
