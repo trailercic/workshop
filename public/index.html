@@ -145,7 +145,8 @@
   .col-body::-webkit-scrollbar-thumb{ background: var(--line); border-radius: 3px; }
   .empty-note{ color: var(--paper-dim); font-size:12px; font-family: var(--font-mono); text-align:center; padding: 24px 8px; opacity:0.6; }
 
-  .card{ background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--steel); padding: 12px 14px; cursor:pointer; position:relative; transition: border-color .15s, transform .1s; }
+  .card{ background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--steel); padding: 12px 14px; cursor:default; position:relative; transition: border-color .15s, transform .1s; }
+  .card.clickable-card{ cursor:pointer; }
   .card:hover{ transform: translateY(-1px); border-color: var(--amber); }
   .card.urgent{ border-left-color: var(--red); }
   .card.urgent::after{ content:"URGENT"; position:absolute; top:8px; right:10px; font-family: var(--font-mono); font-size:10px; letter-spacing:1px; color: var(--red); border:1px solid var(--red); padding:1px 5px; transform: rotate(4deg); }
@@ -167,6 +168,19 @@
   .card .actions button.danger:hover{ border-color: var(--red); color: var(--red); }
 
   .status-bar{ display:flex; justify-content:space-between; align-items:center; margin-top:16px; font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); }
+
+  .modal-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.65); display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px; }
+  .modal-overlay.hidden{ display:none; }
+  .modal-panel{ background: var(--panel); border:1px solid var(--line); max-width:560px; width:100%; max-height:88vh; overflow-y:auto; padding:28px 26px; position:relative; }
+  .modal-close{ position:absolute; top:12px; right:14px; background:transparent; border:none; color: var(--paper-dim); font-size:26px; line-height:1; cursor:pointer; }
+  .modal-close:hover{ color: var(--amber); }
+  .modal-panel .card{ background:transparent; border:none; padding:0; cursor:default; }
+  .modal-panel .card:hover{ transform:none; border-color:transparent; }
+  .modal-panel .card .part{ font-size:22px; padding-right:0; }
+  .modal-panel .card .meta{ font-size:13px; }
+  .modal-panel .item-line{ font-size:14px; padding:10px 12px; }
+  .modal-panel .actions{ margin-top:16px; gap:10px; }
+  .modal-panel .actions button{ font-size:12px; padding:8px 14px; }
   .dot{ display:inline-block; width:7px; height:7px; border-radius:50%; background: var(--green); margin-right:6px; box-shadow: 0 0 5px var(--green); }
 
   .location-switch{ margin-bottom: 16px; width: fit-content; }
@@ -358,6 +372,13 @@
     </div>
   </div>
 
+</div>
+
+<div id="ticket-modal" class="modal-overlay hidden">
+  <div class="modal-panel">
+    <button type="button" class="modal-close" id="modal-close-btn">×</button>
+    <div id="modal-panel-content"></div>
+  </div>
 </div>
 
 <script>
@@ -882,12 +903,62 @@
         return;
       }
 
-      list.forEach(o => body.appendChild(buildCard(o)));
+      list.forEach(o => {
+        const card = buildCard(o);
+        if(!SCREEN_MODE && col.status !== 'novo'){
+          card.classList.add('clickable-card');
+          card.addEventListener('click', () => openTicketModal(o.id));
+        }
+        body.appendChild(card);
+      });
       body.scrollTop = Math.min(savedScroll, body.scrollHeight - body.clientHeight);
     });
 
     $('last-sync').textContent = 'last synced ' + new Date().toLocaleTimeString('en-GB');
+
+    if(modalOrderId){
+      const current = orders.find(x => x.id === modalOrderId);
+      if(current) renderModalContent(current); else closeTicketModal();
+    }
   }
+
+  // ---------- ticket detail modal ----------
+  let modalOrderId = null;
+
+  function openTicketModal(id){
+    modalOrderId = id;
+    const o = orders.find(x => x.id === id);
+    if(!o) return;
+    renderModalContent(o);
+    $('ticket-modal').classList.remove('hidden');
+  }
+
+  function closeTicketModal(){
+    const textarea = document.querySelector('#modal-panel-content .note-input');
+    if(textarea && modalOrderId && noteDrafts.has(modalOrderId)){
+      saveNote(modalOrderId, textarea.value);
+    }
+    modalOrderId = null;
+    $('ticket-modal').classList.add('hidden');
+    $('modal-panel-content').innerHTML = '';
+  }
+
+  function renderModalContent(o){
+    const content = $('modal-panel-content');
+    const focused = document.activeElement;
+    const wasEditingNote = focused && focused.classList && focused.classList.contains('note-input');
+    if(wasEditingNote) return; // don't yank the field out from under an active typist
+    content.innerHTML = '';
+    content.appendChild(buildCard(o));
+  }
+
+  $('modal-close-btn').addEventListener('click', closeTicketModal);
+  $('ticket-modal').addEventListener('click', (e) => {
+    if(e.target.id === 'ticket-modal') closeTicketModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape' && modalOrderId) closeTicketModal();
+  });
 
   async function advanceStatus(id, newStatus, expectedStatus){
     try{
