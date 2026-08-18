@@ -378,6 +378,9 @@
   <div id="view-history" class="view">
     <div class="panel">
       <h2>Order History</h2>
+      <div class="field">
+        <input id="history-search" type="text" placeholder="Search service order, requester, issued by, part name...">
+      </div>
       <div id="history-list"></div>
     </div>
   </div>
@@ -800,7 +803,7 @@
     } else {
       const items = Array.isArray(o.items) ? o.items : [];
       const interactive = allowActions && (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
-      const canPhoto = allowActions && !SCREEN_MODE;
+      const canPhoto = allowActions && !SCREEN_MODE && currentUser && currentUser.role !== 'magacioner';
       const itemsHtml = items.map((it, idx) => {
         const state = status === 'spremno' ? 'green' : (it.state || 'none');
         return `
@@ -1142,48 +1145,69 @@
     item_marked: 'Part marked', note_updated: 'Note updated',
   };
 
+  let historyData = [];
+
   async function refreshHistory(){
-    const list = $('history-list');
     try{
-      const orders = await api('/api/history');
-      list.innerHTML = '';
-
-      if(orders.length === 0){
-        const empty = document.createElement('div');
-        empty.className = 'empty-note history';
-        empty.textContent = 'No issued orders yet.';
-        list.appendChild(empty);
-        return;
-      }
-
-      orders.forEach(o => {
-        const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
-        const items = Array.isArray(o.items) ? o.items : [];
-        const itemsText = items.map(it => `<span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>`).join(', ');
-
-        const timelineHtml = (o.events || []).map(e => `
-          <li>
-            <span class="t-action">${ACTION_LABEL[e.action] || escapeHtml(e.action)}</span>
-            <span class="t-actor">${escapeHtml(e.actor)}</span>
-            <span>${dateTime(Number(e.created_at))}${e.detail ? ' · ' + escapeHtml(e.detail) : ''}</span>
-          </li>
-        `).join('');
-
-        const div = document.createElement('div');
-        div.className = 'history-item';
-        div.innerHTML = `
-          <div class="h-head">
-            <span class="h-title">${label}</span>
-            <span class="h-meta">${escapeHtml(o.location)} · requested by ${escapeHtml(o.requester)} · issued by ${escapeHtml(o.issued_by)} on ${dateTime(Number(o.issued_at))}</span>
-          </div>
-          <div class="h-items">${itemsText}</div>
-          <ul class="timeline">${timelineHtml}</ul>
-        `;
-        list.appendChild(div);
-      });
+      historyData = await api('/api/history');
+      $('history-search').value = '';
+      renderHistoryList(historyData);
     } catch(e){
       if(e.status === 401){ logout(); }
     }
+  }
+
+  function historySearchText(o){
+    const items = Array.isArray(o.items) ? o.items : [];
+    return [
+      o.service_order || '', o.id, o.requester, o.issued_by, o.location,
+      ...items.map(it => it.part),
+    ].join(' ').toLowerCase();
+  }
+
+  $('history-search').addEventListener('input', () => {
+    const q = $('history-search').value.trim().toLowerCase();
+    const filtered = q ? historyData.filter(o => historySearchText(o).includes(q)) : historyData;
+    renderHistoryList(filtered, q);
+  });
+
+  function renderHistoryList(orders, activeQuery){
+    const list = $('history-list');
+    list.innerHTML = '';
+
+    if(orders.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-note history';
+      empty.textContent = activeQuery ? 'No matching orders.' : 'No issued orders yet.';
+      list.appendChild(empty);
+      return;
+    }
+
+    orders.forEach(o => {
+      const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
+      const items = Array.isArray(o.items) ? o.items : [];
+      const itemsText = items.map(it => `<span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>`).join(', ');
+
+      const timelineHtml = (o.events || []).map(e => `
+        <li>
+          <span class="t-action">${ACTION_LABEL[e.action] || escapeHtml(e.action)}</span>
+          <span class="t-actor">${escapeHtml(e.actor)}</span>
+          <span>${dateTime(Number(e.created_at))}${e.detail ? ' · ' + escapeHtml(e.detail) : ''}</span>
+        </li>
+      `).join('');
+
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      div.innerHTML = `
+        <div class="h-head">
+          <span class="h-title">${label}</span>
+          <span class="h-meta">${escapeHtml(o.location)} · requested by ${escapeHtml(o.requester)} · issued by ${escapeHtml(o.issued_by)} on ${dateTime(Number(o.issued_at))}</span>
+        </div>
+        <div class="h-items">${itemsText}</div>
+        <ul class="timeline">${timelineHtml}</ul>
+      `;
+      list.appendChild(div);
+    });
   }
 
   // ---------- admin: user management ----------
