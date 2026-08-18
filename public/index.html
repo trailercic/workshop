@@ -128,6 +128,7 @@
   .confirm.show{ display:block; }
   .confirm .big{ font-family: var(--font-mono); font-size: 30px; color: var(--amber); letter-spacing:2px; }
   .confirm p{ color: var(--paper-dim); font-size: 13px; margin-top:8px; }
+  .confirm #confirm-so-note{ color: var(--amber); }
   .confirm button{ margin-top:16px; background:transparent; border:1px solid var(--line); color: var(--paper); padding: 9px 16px; border-radius:2px; cursor:pointer; font-family: var(--font-body); font-size:13px; }
   .confirm button:hover{ border-color: var(--amber); color: var(--amber); }
 
@@ -301,6 +302,7 @@
         <div class="confirm" id="confirm-box">
           <div class="label">Order Received</div>
           <div class="big" id="confirm-num">#000000</div>
+          <p id="confirm-so-note" style="display:none;"></p>
           <p>Saved and visible on the warehouse display screen.</p>
           <button id="confirm-new">New Order</button>
         </div>
@@ -623,6 +625,13 @@
     try{
       const result = await api('/api/orders', { method: 'POST', body: JSON.stringify({ serviceOrder, items, note, priority }) });
       $('confirm-num').textContent = result.ticket;
+      const soNote = $('confirm-so-note');
+      if(result.serviceOrder && serviceOrder && result.serviceOrder.toLowerCase() !== serviceOrder.toLowerCase()){
+        soNote.textContent = `"${serviceOrder}" was already in use — assigned as "${result.serviceOrder}".`;
+        soNote.style.display = '';
+      } else {
+        soNote.style.display = 'none';
+      }
       $('confirm-box').classList.add('show');
     } catch(e){
       errEl.textContent = e.message;
