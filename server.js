@@ -226,7 +226,11 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     const part = (raw && raw.part ? String(raw.part) : '').trim();
     if (!part) continue;
     const qty = Math.max(1, parseInt(raw.qty, 10) || 1);
-    cleanItems.push({ part, qty, state: 'none' });
+    let photo = null;
+    if (raw && raw.photo && typeof raw.photo === 'string' && raw.photo.startsWith('data:image/') && raw.photo.length <= 1_500_000) {
+      photo = raw.photo;
+    }
+    cleanItems.push({ part, qty, state: 'none', photo });
   }
   if (cleanItems.length === 0) {
     return res.status(400).json({ error: 'Add at least one part with a name.' });
