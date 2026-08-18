@@ -232,6 +232,28 @@ app.post('/api/orders', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Add at least one part with a name.' });
   }
 
+  const cleanServiceOrder = (serviceOrder || '').trim();
+  let finalServiceOrder = cleanServiceOrder;
+
+  if (cleanServiceOrder) {
+    const existingRows = await pool.query(
+      `SELECT service_order FROM orders WHERE lower(service_order) = lower($1) OR lower(service_order) LIKE lower($1) || '/%'`,
+      [cleanServiceOrder]
+    );
+    if (existingRows.rows.length) {
+      let maxSuffix = 0;
+      for (const row of existingRows.rows) {
+        const so = row.service_order || '';
+        const match = so.match(/\/(\d+)$/);
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (n > maxSuffix) maxSuffix = n;
+        }
+      }
+      finalServiceOrder = `${cleanServiceOrder}/${maxSuffix + 1}`;
+    }
+  }
+
   const id = Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
   const createdAt = Date.now();
   const safePriority = priority === 'hitno' ? 'hitno' : 'normal';
@@ -242,13 +264,13 @@ app.post('/api/orders', requireAuth, async (req, res) => {
   await pool.query(
     `INSERT INTO orders (id, service_order, requester, note, priority, status, items, location, created_at)
      VALUES ($1,$2,$3,$4,$5,'novo',$6,$7,$8)`,
-    [id, (serviceOrder || '').trim(), req.user.username, (note || '').trim(), safePriority, JSON.stringify(cleanItems), location, createdAt]
+    [id, finalServiceOrder, req.user.username, (note || '').trim(), safePriority, JSON.stringify(cleanItems), location, createdAt]
   );
 
-  await logEvent(id, 'created', req.user.username, (serviceOrder || '').trim() || null);
+  await logEvent(id, 'created', req.user.username, finalServiceOrder || null);
 
   broadcastUpdate();
-  res.json({ id, ticket: '#' + id.slice(-6) });
+  res.json({ id, ticket: '#' + id.slice(-6), serviceOrder: finalServiceOrder });
 });
 
 const ITEM_STATE_CYCLE = ['none', 'green', 'yellow', 'red'];
