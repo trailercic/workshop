@@ -165,9 +165,8 @@
   .col[data-status="ceka_delove"] .col-head{ color: var(--amber-dim); }
   .col[data-status="spremno"] .col-head{ color: var(--green); }
 
-  .col-body{ padding: 12px; display:flex; flex-direction:column; gap: 10px; min-height: 120px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-  .col-body::-webkit-scrollbar{ width: 6px; }
-  .col-body::-webkit-scrollbar-thumb{ background: var(--line); border-radius: 3px; }
+  .col-body{ padding: 12px; display:flex; flex-direction:column; gap: 10px; min-height: 120px; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  .col-body::-webkit-scrollbar{ display: none; width: 0; height: 0; }
   .empty-note{ color: var(--paper-dim); font-size:12px; font-family: var(--font-mono); text-align:center; padding: 24px 8px; opacity:0.6; }
 
   .card{ background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--steel); padding: 12px 14px; cursor:default; position:relative; transition: border-color .15s, transform .1s; }
@@ -1042,10 +1041,17 @@
         // auto-scroll can loop seamlessly instead of jumping back to top.
         delete body.dataset.loopHeight;
         if(body.scrollHeight > body.clientHeight + 4){
-          const originalHeight = body.scrollHeight;
+          const firstChild = body.children[0];
+          const originalCount = body.children.length;
           const clones = Array.from(body.children).map(el => el.cloneNode(true));
           clones.forEach(clone => body.appendChild(clone));
-          body.dataset.loopHeight = originalHeight;
+          const firstDuplicate = body.children[originalCount];
+          if(firstChild && firstDuplicate){
+            // Measure the real rendered distance between the two identical
+            // starting points, rather than assuming padding/gap math —
+            // this is what makes the wrap point pixel-perfect.
+            body.dataset.loopHeight = firstDuplicate.offsetTop - firstChild.offsetTop;
+          }
         }
       }
 
