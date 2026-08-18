@@ -91,7 +91,8 @@
   .field textarea{ resize: vertical; min-height: 60px; }
   .row-2{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-  .item-row{ display:grid; grid-template-columns: 1fr 90px auto; gap: 8px; margin-bottom: 8px; align-items:center; }
+  .item-row-wrap{ margin-bottom: 10px; }
+  .item-row{ display:grid; grid-template-columns: 1fr 90px auto; gap: 8px; align-items:center; }
   .item-row input{ background: var(--bg); border: 1px solid var(--line); color: var(--paper); font-family: var(--font-body); font-size: 14px; padding: 10px 11px; border-radius: 2px; outline: none; }
   .item-row input:focus{ border-color: var(--amber); }
   .item-row .remove-item{ background: transparent; border:1px solid var(--line); color: var(--paper-dim); width:36px; height:36px; border-radius:2px; cursor:pointer; font-size:16px; line-height:1; }
@@ -116,6 +117,7 @@
   .item-line-wrap{ margin-bottom:2px; }
   .item-photo-row{ display:flex; align-items:center; gap:8px; padding:0 8px 6px; }
   .item-thumb{ width:36px; height:36px; object-fit:cover; border-radius:2px; border:1px solid var(--line); cursor:pointer; }
+  .item-thumb.hidden{ display:none; }
   .photo-btn{ font-family: var(--font-mono); font-size:10px; letter-spacing:0.5px; background: transparent; border:1px dashed var(--line); color: var(--paper-dim); padding:4px 8px; border-radius:2px; cursor:pointer; }
   .photo-btn:hover{ border-color: var(--amber); color: var(--amber); }
 
@@ -567,23 +569,49 @@
 
   function addItemRow(focus){
     itemRowCount++;
-    const row = document.createElement('div');
-    row.className = 'item-row';
-    row.innerHTML = `
-      <input type="text" class="item-part" placeholder="e.g. Front brake pad" autocomplete="off">
-      <input type="number" class="item-qty" min="1" value="1">
-      <button type="button" class="remove-item" title="Remove">×</button>
+    const wrap = document.createElement('div');
+    wrap.className = 'item-row-wrap';
+    wrap.innerHTML = `
+      <div class="item-row">
+        <input type="text" class="item-part" placeholder="e.g. Front brake pad" autocomplete="off">
+        <input type="number" class="item-qty" min="1" value="1">
+        <button type="button" class="remove-item" title="Remove">×</button>
+      </div>
+      <div class="item-photo-row">
+        <img class="item-thumb hidden">
+        <button type="button" class="photo-btn">📷 Add photo</button>
+      </div>
     `;
-    row.querySelector('.remove-item').addEventListener('click', () => {
-      if($('items-list').children.length > 1){ row.remove(); }
+    wrap.querySelector('.remove-item').addEventListener('click', () => {
+      if($('items-list').children.length > 1){ wrap.remove(); updateRemoveButtons(); }
     });
-    $('items-list').appendChild(row);
+    wrap.querySelector('.photo-btn').addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.addEventListener('change', async () => {
+        const file = input.files[0];
+        if(!file) return;
+        try{
+          const compressed = await compressImageFile(file);
+          wrap.dataset.photo = compressed;
+          const thumb = wrap.querySelector('.item-thumb');
+          thumb.src = compressed;
+          thumb.classList.remove('hidden');
+          wrap.querySelector('.photo-btn').textContent = '📷 Replace';
+        } catch(e){
+          alert(e.message || 'Could not process photo.');
+        }
+      });
+      input.click();
+    });
+    $('items-list').appendChild(wrap);
     updateRemoveButtons();
-    if(focus) row.querySelector('.item-part').focus();
+    if(focus) wrap.querySelector('.item-part').focus();
   }
 
   function updateRemoveButtons(){
-    const rows = $('items-list').querySelectorAll('.item-row');
+    const rows = $('items-list').querySelectorAll('.item-row-wrap');
     rows.forEach(r => { r.querySelector('.remove-item').disabled = rows.length <= 1; });
   }
 
@@ -593,9 +621,10 @@
   }
 
   function collectItems(){
-    return Array.from($('items-list').querySelectorAll('.item-row')).map(r => ({
-      part: r.querySelector('.item-part').value.trim(),
-      qty: parseInt(r.querySelector('.item-qty').value, 10) || 1,
+    return Array.from($('items-list').querySelectorAll('.item-row-wrap')).map(wrap => ({
+      part: wrap.querySelector('.item-part').value.trim(),
+      qty: parseInt(wrap.querySelector('.item-qty').value, 10) || 1,
+      photo: wrap.dataset.photo || null,
     })).filter(i => i.part);
   }
 
