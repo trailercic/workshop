@@ -113,6 +113,11 @@
   .items-preview .item-line.state-yellow .dot{ background: var(--yellow); border-color: var(--yellow); }
   .items-preview .item-line.state-red{ border-left-color: var(--red); }
   .items-preview .item-line.state-red .dot{ background: var(--red); border-color: var(--red); }
+  .item-line-wrap{ margin-bottom:2px; }
+  .item-photo-row{ display:flex; align-items:center; gap:8px; padding:0 8px 6px; }
+  .item-thumb{ width:36px; height:36px; object-fit:cover; border-radius:2px; border:1px solid var(--line); cursor:pointer; }
+  .photo-btn{ font-family: var(--font-mono); font-size:10px; letter-spacing:0.5px; background: transparent; border:1px dashed var(--line); color: var(--paper-dim); padding:4px 8px; border-radius:2px; cursor:pointer; }
+  .photo-btn:hover{ border-color: var(--amber); color: var(--amber); }
 
   .priority-toggle{ display:flex; gap:8px; }
   .priority-toggle button{ flex:1; padding: 10px; border-radius:2px; cursor:pointer; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:12px; border:1px solid var(--line); background: var(--bg); color: var(--paper-dim); }
@@ -766,12 +771,19 @@
     } else {
       const items = Array.isArray(o.items) ? o.items : [];
       const interactive = allowActions && (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
+      const canPhoto = allowActions && !SCREEN_MODE;
       const itemsHtml = items.map((it, idx) => {
         const state = status === 'spremno' ? 'green' : (it.state || 'none');
         return `
-        <div class="item-line${interactive ? ' toggleable' : ''} state-${state}" ${interactive ? `data-idx="${idx}"` : ''}>
-          <span><span class="dot"></span>${escapeHtml(it.part)}</span>
-          <span class="qty">×${it.qty}</span>
+        <div class="item-line-wrap">
+          <div class="item-line${interactive ? ' toggleable' : ''} state-${state}" ${interactive ? `data-idx="${idx}"` : ''}>
+            <span><span class="dot"></span>${escapeHtml(it.part)}</span>
+            <span class="qty">×${it.qty}</span>
+          </div>
+          <div class="item-photo-row">
+            ${it.photo ? `<img class="item-thumb" data-idx="${idx}" src="${it.photo}" alt="${escapeHtml(it.part)}">` : ''}
+            ${canPhoto ? `<button type="button" class="photo-btn" data-idx="${idx}">${it.photo ? '📷 Replace' : '📷 Add photo'}</button>` : ''}
+          </div>
         </div>
       `;
       }).join('');
@@ -798,6 +810,21 @@
           });
         });
       }
+      if(canPhoto){
+        card.querySelectorAll('.photo-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pickAndUploadPhoto(o.id, btn.dataset.idx);
+          });
+        });
+      }
+      card.querySelectorAll('.item-thumb').forEach(img => {
+        img.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const win = window.open('');
+          if(win) win.document.write(`<img src="${img.src}" style="max-width:100%;">`);
+        });
+      });
       const noteToggleBtn = card.querySelector('.note-toggle');
       if(noteToggleBtn){
         noteToggleBtn.addEventListener('click', (e) => {
@@ -1011,6 +1038,59 @@
       await api('/api/orders/' + id + '/items/' + index, { method: 'PATCH' });
       await refreshOrders();
     } catch(e){ alert(e.message); }
+  }
+
+  const PHOTO_MAX_DIMENSION = 480;
+  const PHOTO_JPEG_QUALITY = 0.55;
+
+  function compressImageFile(file){
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Could not read the file.'));
+      reader.onload = () => {
+        img.onerror = () => reject(new Error('Could not read the image.'));
+        img.onload = () => {
+          let { width, height } = img;
+          if(width > height && width > PHOTO_MAX_DIMENSION){
+            height = Math.round(height * (PHOTO_MAX_DIMENSION / width));
+            width = PHOTO_MAX_DIMENSION;
+          } else if(height > PHOTO_MAX_DIMENSION){
+            width = Math.round(width * (PHOTO_MAX_DIMENSION / height));
+            height = PHOTO_MAX_DIMENSION;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', PHOTO_JPEG_QUALITY));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function pickAndUploadPhoto(orderId, index){
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if(!file) return;
+      try{
+        const compressed = await compressImageFile(file);
+        await api('/api/orders/' + orderId + '/items/' + index + '/photo', {
+          method: 'PATCH',
+          body: JSON.stringify({ photo: compressed }),
+        });
+        await refreshOrders();
+      } catch(e){
+        alert(e.message || 'Could not upload photo.');
+      }
+    });
+    input.click();
   }
   async function saveNote(id, note){
     try{
