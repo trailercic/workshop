@@ -78,27 +78,39 @@
   .login-hint{ margin-top:16px; font-size:11px; color: var(--paper-dim); font-family: var(--font-mono); line-height:1.6; opacity:0.7; }
 
   .ticket-wrap{ display:flex; justify-content:center; }
-  .ticket-form{ width: 100%; max-width: 480px; background: var(--panel); border: 1px solid var(--line); position: relative; padding: 26px 26px 24px; }
-  .ticket-form::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:6px; background: repeating-linear-gradient(180deg, var(--amber) 0 10px, transparent 10px 20px); }
-  .ticket-head{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 18px; }
-  .ticket-head .label{ font-family: var(--font-mono); font-size: 11px; color: var(--paper-dim); letter-spacing: 1.5px; text-transform: uppercase; }
-  .ticket-head .num{ font-family: var(--font-mono); font-size: 13px; color: var(--amber); margin-top:4px; }
+  .ticket-form{ width: 100%; max-width: 480px; background: var(--panel); border: 1px solid var(--line); position: relative; padding: 26px 26px 24px; box-shadow: 0 18px 40px -20px rgba(0,0,0,0.6); }
+
+  .ticket-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+  .ticket-head-left .label{ font-family: var(--font-mono); font-size: 11px; color: var(--paper-dim); letter-spacing: 2px; text-transform: uppercase; }
+  .ticket-title{ font-family: var(--font-display); font-size: 25px; font-weight:600; margin:4px 0 0; color: var(--paper); text-transform: uppercase; letter-spacing:0.5px; }
+  .ticket-stub{ background: var(--bg); border:1px dashed var(--amber-dim); padding:9px 14px; text-align:right; transform: rotate(-1.4deg); min-width:118px; }
+  .stub-label{ font-family: var(--font-mono); font-size:9px; color: var(--paper-dim); letter-spacing:1.5px; text-transform:uppercase; }
+  .ticket-head .num{ font-family: var(--font-mono); font-size: 16px; font-weight:600; color: var(--amber); margin-top:2px; }
+  .stub-date{ font-family: var(--font-mono); font-size:10px; color: var(--paper-dim); margin-top:5px; }
+
+  .perforation{ height:0; border-top:1px dashed var(--line); margin: 20px -26px 22px; position:relative; }
+  .perforation::before, .perforation::after{ content:""; position:absolute; top:-6px; width:12px; height:12px; border-radius:50%; background: var(--bg); border:1px solid var(--line); }
+  .perforation::before{ left:-6px; }
+  .perforation::after{ right:-6px; }
 
   .field{ margin-bottom: 16px; }
   .field label{ display:block; font-family: var(--font-display); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--paper-dim); margin-bottom: 6px; }
-  .field input, .field textarea, .field select{ width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--paper); font-family: var(--font-body); font-size: 14px; padding: 10px 11px; border-radius: 2px; outline: none; }
+  .field label .items-count{ font-family: var(--font-mono); background: var(--bg); border:1px solid var(--line); color: var(--paper-dim); font-size:10px; letter-spacing:0; text-transform:none; padding:1px 7px; border-radius:10px; margin-left:6px; }
+  .field input, .field textarea, .field select{ width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--paper); font-family: var(--font-body); font-size: 14px; padding: 10px 11px; border-radius: 2px; outline: none; transition: border-color .15s; }
   .field input:focus, .field textarea:focus, .field select:focus{ border-color: var(--amber); }
   .field textarea{ resize: vertical; min-height: 60px; }
   .row-2{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-  .item-row-wrap{ margin-bottom: 10px; }
-  .item-row{ display:grid; grid-template-columns: 1fr 90px auto; gap: 8px; align-items:center; }
-  .item-row input{ background: var(--bg); border: 1px solid var(--line); color: var(--paper); font-family: var(--font-body); font-size: 14px; padding: 10px 11px; border-radius: 2px; outline: none; }
+  @keyframes rowIn{ from{ opacity:0; transform: translateY(-8px); } to{ opacity:1; transform:none; } }
+  .item-row-wrap{ margin-bottom: 10px; animation: rowIn .22s ease; }
+  .item-row{ display:grid; grid-template-columns: 20px 1fr 60px auto; gap: 8px; align-items:center; }
+  .item-num{ font-family: var(--font-mono); font-size:12px; color: var(--amber-dim); text-align:right; }
+  .item-row input{ background: var(--bg); border: 1px solid var(--line); color: var(--paper); font-family: var(--font-body); font-size: 14px; padding: 10px 11px; border-radius: 2px; outline: none; transition: border-color .15s; }
   .item-row input:focus{ border-color: var(--amber); }
-  .item-row .remove-item{ background: transparent; border:1px solid var(--line); color: var(--paper-dim); width:36px; height:36px; border-radius:2px; cursor:pointer; font-size:16px; line-height:1; }
+  .item-row .remove-item{ background: transparent; border:1px solid var(--line); color: var(--paper-dim); width:36px; height:36px; border-radius:2px; cursor:pointer; font-size:16px; line-height:1; transition: border-color .15s, color .15s; }
   .item-row .remove-item:hover{ border-color: var(--red); color: var(--red); }
   .item-row .remove-item:disabled{ opacity:0.3; cursor:default; }
-  .add-item-btn{ width:100%; padding: 9px; border: 1px dashed var(--line); background: transparent; color: var(--paper-dim); font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:12px; border-radius:2px; cursor:pointer; margin-top:2px; }
+  .add-item-btn{ width:100%; padding: 9px; border: 1px dashed var(--line); background: transparent; color: var(--paper-dim); font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:12px; border-radius:2px; cursor:pointer; margin-top:2px; transition: border-color .15s, color .15s; }
   .add-item-btn:hover{ border-color: var(--amber); color: var(--amber); }
 
   .items-preview{ margin-top:4px; }
@@ -122,21 +134,26 @@
   .photo-btn:hover{ border-color: var(--amber); color: var(--amber); }
 
   .priority-toggle{ display:flex; gap:8px; }
-  .priority-toggle button{ flex:1; padding: 10px; border-radius:2px; cursor:pointer; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:12px; border:1px solid var(--line); background: var(--bg); color: var(--paper-dim); }
+  .priority-toggle button{ flex:1; padding: 10px; border-radius:2px; cursor:pointer; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:12px; border:1px solid var(--line); background: var(--bg); color: var(--paper-dim); transition: background .15s, border-color .15s, color .15s; }
   .priority-toggle button.active[data-p="normal"]{ background: var(--steel); border-color: var(--steel); color:#fff; }
-  .priority-toggle button.active[data-p="hitno"]{ background: var(--red); border-color: var(--red); color:#fff; }
+  @keyframes stampSlam{ 0%{ transform: scale(1.5) rotate(-8deg); opacity:0; } 60%{ transform: scale(0.94) rotate(2deg); opacity:1; } 100%{ transform: scale(1) rotate(0); } }
+  .priority-toggle button.active[data-p="hitno"]{ background: var(--red); border-color: var(--red); color:#fff; animation: stampSlam .3s cubic-bezier(.36,1.7,.5,1); }
+  @media (prefers-reduced-motion: reduce){ .priority-toggle button.active[data-p="hitno"]{ animation:none; } .item-row-wrap{ animation:none; } }
 
-  .submit-btn{ width:100%; margin-top: 6px; padding: 13px; border:none; border-radius:2px; background: var(--amber); color:#1b1d18; font-family: var(--font-display); font-size:15px; font-weight:600; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition: background .15s, transform .1s; }
+  .submit-btn{ width:100%; margin-top: 6px; padding: 14px; border:none; border-radius:2px; background: var(--amber); color:#1b1d18; font-family: var(--font-display); font-size:15px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; transition: background .15s, transform .1s; }
   .submit-btn:hover{ background:#ffbb1a; }
-  .submit-btn:active{ transform: scale(0.99); }
+  .submit-btn:active{ transform: scale(0.97); }
   .submit-btn:disabled{ opacity:0.5; cursor:default; }
 
-  .confirm{ display:none; text-align:center; padding: 30px 20px; border: 1px dashed var(--amber-dim); margin-top: 18px; }
+  .confirm{ display:none; text-align:center; padding: 36px 20px 26px; margin-top: 22px; position:relative; background: var(--bg); border:1px solid var(--line); }
   .confirm.show{ display:block; }
+  .confirm-tear{ position:absolute; top:-1px; left:-1px; right:-1px; height:10px; background-image: linear-gradient(135deg, var(--panel) 50%, transparent 50%), linear-gradient(225deg, var(--panel) 50%, transparent 50%); background-size:16px 20px; background-position: top; background-repeat: repeat-x; }
+  .confirm-stamp{ display:inline-block; font-family: var(--font-display); font-weight:700; font-size:18px; letter-spacing:2px; color: var(--green); border:3px solid var(--green); padding:6px 16px; border-radius:4px; transform: rotate(-6deg); margin-bottom:16px; animation: stampSlam .4s cubic-bezier(.36,1.7,.5,1); }
+  @media (prefers-reduced-motion: reduce){ .confirm-stamp{ animation:none; } }
   .confirm .big{ font-family: var(--font-mono); font-size: 30px; color: var(--amber); letter-spacing:2px; }
   .confirm p{ color: var(--paper-dim); font-size: 13px; margin-top:8px; }
   .confirm #confirm-so-note{ color: var(--amber); }
-  .confirm button{ margin-top:16px; background:transparent; border:1px solid var(--line); color: var(--paper); padding: 9px 16px; border-radius:2px; cursor:pointer; font-family: var(--font-body); font-size:13px; }
+  .confirm button{ margin-top:16px; background:transparent; border:1px solid var(--line); color: var(--paper); padding: 9px 16px; border-radius:2px; cursor:pointer; font-family: var(--font-body); font-size:13px; transition: border-color .15s, color .15s; }
   .confirm button:hover{ border-color: var(--amber); color: var(--amber); }
 
   .board{ display:grid; grid-template-columns: repeat(var(--board-cols, 4), 1fr); gap: 14px; align-items:start; }
@@ -272,12 +289,17 @@
     <div class="ticket-wrap">
       <div class="ticket-form">
         <div class="ticket-head">
-          <div>
+          <div class="ticket-head-left">
             <div class="label">Work Order</div>
-            <div class="num" id="next-num">#-----</div>
+            <h2 class="ticket-title">New Request</h2>
           </div>
-          <div class="label" id="today-date"></div>
+          <div class="ticket-stub">
+            <div class="stub-label">No.</div>
+            <div class="num" id="next-num">#-----</div>
+            <div class="stub-date" id="today-date"></div>
+          </div>
         </div>
+        <div class="perforation"></div>
 
         <div class="field">
           <label for="f-service-order">Service Order</label>
@@ -285,9 +307,9 @@
         </div>
 
         <div class="field">
-          <label>Parts</label>
+          <label>Parts Needed <span class="items-count" id="items-count">1</span></label>
           <div id="items-list"></div>
-          <button type="button" class="add-item-btn" id="add-item-btn">+ Add part</button>
+          <button type="button" class="add-item-btn" id="add-item-btn">+ Add Part</button>
         </div>
 
         <div class="field">
@@ -307,6 +329,8 @@
         <div class="login-error" id="order-error"></div>
 
         <div class="confirm" id="confirm-box">
+          <div class="confirm-tear"></div>
+          <div class="confirm-stamp">✓ Received</div>
           <div class="label">Order Received</div>
           <div class="big" id="confirm-num">#000000</div>
           <p id="confirm-so-note" style="display:none;"></p>
@@ -576,6 +600,7 @@
     wrap.className = 'item-row-wrap';
     wrap.innerHTML = `
       <div class="item-row">
+        <span class="item-num">01</span>
         <input type="text" class="item-part" placeholder="e.g. Front brake pad" autocomplete="off">
         <input type="number" class="item-qty" min="1" value="1">
         <button type="button" class="remove-item" title="Remove">×</button>
@@ -615,7 +640,11 @@
 
   function updateRemoveButtons(){
     const rows = $('items-list').querySelectorAll('.item-row-wrap');
-    rows.forEach(r => { r.querySelector('.remove-item').disabled = rows.length <= 1; });
+    rows.forEach((r, i) => {
+      r.querySelector('.remove-item').disabled = rows.length <= 1;
+      r.querySelector('.item-num').textContent = String(i + 1).padStart(2, '0');
+    });
+    $('items-count').textContent = rows.length;
   }
 
   function resetItemRows(){
