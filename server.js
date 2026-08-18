@@ -15,7 +15,7 @@ if (!JWT_SECRET) {
   console.error('ERROR: JWT_SECRET is not set in environment variables. Set it before running in production.');
 }
 
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
   next();
@@ -287,10 +287,34 @@ app.patch('/api/orders/:id/items/:index', requireAuth, requireRole('magacioner',
 
   const currentState = items[idx].state || 'none';
   const nextState = ITEM_STATE_CYCLE[(ITEM_STATE_CYCLE.indexOf(currentState) + 1) % ITEM_STATE_CYCLE.length];
-  items[idx] = { part: items[idx].part, qty: items[idx].qty, state: nextState };
+  items[idx] = { ...items[idx], state: nextState };
 
   await pool.query('UPDATE orders SET items = $1 WHERE id = $2', [JSON.stringify(items), id]);
   await logEvent(id, 'item_marked', req.user.username, `${items[idx].part}: ${nextState}`);
+
+  broadcastUpdate();
+  res.json({ ok: true, items });
+});
+
+app.patch('/api/orders/:id/items/:index/photo', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
+  const { id, index } = req.params;
+  const idx = parseInt(index, 10);
+  const { photo } = req.body || {};
+
+  if (photo && (typeof photo !== 'string' || !photo.startsWith('data:image/') || photo.length > 1_500_000)) {
+    return res.status(400).json({ error: 'Invalid or oversized photo.' });
+  }
+
+  const { rows } = await pool.query('SELECT items FROM orders WHERE id = $1', [id]);
+  if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
+
+  const items = Array.isArray(rows[0].items) ? rows[0].items : [];
+  if (!items[idx]) return res.status(400).json({ error: 'Invalid item.' });
+
+  items[idx] = { ...items[idx], photo: photo || null };
+
+  await pool.query('UPDATE orders SET items = $1 WHERE id = $2', [JSON.stringify(items), id]);
+  await logEvent(id, photo ? 'photo_added' : 'photo_removed', req.user.username, items[idx].part);
 
   broadcastUpdate();
   res.json({ ok: true, items });
