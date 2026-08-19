@@ -168,7 +168,7 @@ app.post('/api/login', async (req, res) => {
   loginAttempts.delete(ip);
   const token = signToken(user);
   res.cookie('token', token, COOKIE_OPTS);
-  res.json({ username: user.username, role: user.role });
+  res.json({ username: user.username, role: user.role, canManageOwnTickets: !!user.can_manage_own_tickets });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -176,21 +176,43 @@ app.post('/api/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/me', requireAuth, (req, res) => {
-  res.json({ username: req.user.username, role: req.user.role });
+app.get('/api/me', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT can_manage_own_tickets FROM users WHERE username = $1', [req.user.username]);
+  res.json({
+    username: req.user.username,
+    role: req.user.role,
+    canManageOwnTickets: !!(rows[0] && rows[0].can_manage_own_tickets),
+  });
 });
 
 // ---------- orders routes ----------
 // Public, read-only board for the "screen" role — no login required.
 // Intended for a TV/tablet permanently showing the warehouse display.
 app.get('/api/public/board', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL ORDER BY created_at ASC');
+  const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL AND cancelled_at IS NULL ORDER BY created_at ASC');
   res.json(attachLockInfo(rows));
 });
 
 app.get('/api/orders', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL ORDER BY created_at ASC');
+  const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL AND cancelled_at IS NULL ORDER BY created_at ASC');
   res.json(attachLockInfo(rows));
+});
+
+app.get('/api/my-orders', requireAuth, async (req, res) => {
+  let canManageAll = req.user.role === 'admin';
+  if (!canManageAll) {
+    const perm = await pool.query('SELECT can_manage_own_tickets FROM users WHERE username = $1', [req.user.username]);
+    canManageAll = !!(perm.rows[0] && perm.rows[0].can_manage_own_tickets);
+  }
+
+  if (!canManageAll) {
+    return res.status(403).json({ error: 'You do not have permission to manage tickets.' });
+  }
+
+  // This permission grants oversight of every requester's tickets, not just
+  // the caller's own — hence no "WHERE requester = ..." filter here.
+  const { rows } = await pool.query('SELECT * FROM orders ORDER BY created_at DESC LIMIT 200');
+  res.json(rows);
 });
 
 app.post('/api/orders/:id/lock', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
@@ -288,6 +310,7 @@ app.patch('/api/orders/:id/items/:index', requireAuth, requireRole('magacioner',
 
   const items = Array.isArray(rows[0].items) ? rows[0].items : [];
   if (!items[idx]) return res.status(400).json({ error: 'Invalid item.' });
+  if (items[idx].state === 'removed') return res.status(400).json({ error: 'This part was removed and can no longer be marked.' });
 
   const currentState = items[idx].state || 'none';
   const nextState = ITEM_STATE_CYCLE[(ITEM_STATE_CYCLE.indexOf(currentState) + 1) % ITEM_STATE_CYCLE.length];
@@ -405,7 +428,74 @@ app.post('/api/orders/:id/issue', requireAuth, requireRole('magacioner', 'admin'
   res.json({ ok: true });
 });
 
-// ---------- history (admin only) ----------
+// A requester with the "can manage tickets" permission may withdraw ANY
+// order, or remove a single part from ANY order, at any point before it's
+// actually issued. Admins can always do this too.
+async function canManageOrder(req, res, order) {
+  if (!order) {
+    res.status(404).json({ error: 'Order not found.' });
+    return false;
+  }
+  if (req.user.role !== 'admin') {
+    const { rows } = await pool.query('SELECT can_manage_own_tickets FROM users WHERE username = $1', [req.user.username]);
+    if (!rows.length || !rows[0].can_manage_own_tickets) {
+      res.status(403).json({ error: 'You do not have permission to manage tickets.' });
+      return false;
+    }
+  }
+  if (order.issued_at || order.cancelled_at) {
+    res.status(400).json({ error: 'This order has already been completed and can no longer be changed.' });
+    return false;
+  }
+  return true;
+}
+
+app.post('/api/orders/:id/cancel', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+  if (!(await canManageOrder(req, res, rows[0]))) return;
+
+  await pool.query('UPDATE orders SET cancelled_by = $1, cancelled_at = $2 WHERE id = $3', [req.user.username, Date.now(), req.params.id]);
+  await logEvent(req.params.id, 'cancelled', req.user.username);
+
+  broadcastUpdate();
+  res.json({ ok: true });
+});
+
+app.delete('/api/orders/:id/items/:index', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+  const order = rows[0];
+  if (!(await canManageOrder(req, res, order))) return;
+
+  const items = Array.isArray(order.items) ? [...order.items] : [];
+  const idx = parseInt(req.params.index, 10);
+  if (!items[idx]) return res.status(400).json({ error: 'Invalid item.' });
+  if (items[idx].state === 'removed') return res.status(400).json({ error: 'This part was already removed.' });
+
+  const activeCount = items.filter((it) => it.state !== 'removed').length;
+  if (activeCount <= 1) {
+    return res.status(400).json({ error: 'An order needs at least one active part — withdraw the whole order instead.' });
+  }
+
+  // Keep the item visible but marked, instead of deleting it outright, so
+  // the warehouse can clearly see something was pulled from an order they
+  // may already be working on.
+  items[idx] = { part: items[idx].part, qty: items[idx].qty, state: 'removed', removedBy: req.user.username };
+
+  let newStatus = order.status;
+  if (order.status === 'ceka_delove' || order.status === 'spremno') {
+    newStatus = 'u_obradi';
+  }
+
+  await pool.query('UPDATE orders SET items = $1, status = $2 WHERE id = $3', [JSON.stringify(items), newStatus, req.params.id]);
+  await logEvent(req.params.id, 'item_removed', req.user.username, items[idx].part);
+  if (newStatus !== order.status) {
+    await logEvent(req.params.id, 'returned_to_progress', req.user.username, `"${items[idx].part}" was removed`);
+  }
+
+  broadcastUpdate();
+  res.json({ ok: true, items, status: newStatus });
+});
+
 // ---------- backup (admin only) ----------
 // Supabase's free tier has no automated backups, so this lets an admin
 // download a full snapshot of the data on demand.
@@ -429,7 +519,7 @@ app.get('/api/backup', requireAuth, requireRole('admin'), async (req, res) => {
 
 app.get('/api/history', requireAuth, requireRole('admin'), async (req, res) => {
   const { rows: orders } = await pool.query(
-    'SELECT * FROM orders WHERE issued_at IS NOT NULL ORDER BY issued_at DESC LIMIT 200'
+    "SELECT * FROM orders WHERE issued_at IS NOT NULL OR cancelled_at IS NOT NULL ORDER BY COALESCE(issued_at, cancelled_at) DESC LIMIT 200"
   );
   if (orders.length === 0) return res.json([]);
 
@@ -450,34 +540,43 @@ app.get('/api/history', requireAuth, requireRole('admin'), async (req, res) => {
 
 // ---------- user management (admin only) ----------
 app.get('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
-  const { rows } = await pool.query('SELECT username, role, location, pass_hash, created_at FROM users ORDER BY created_at ASC');
+  const { rows } = await pool.query('SELECT username, role, location, can_manage_own_tickets, pass_hash, created_at FROM users ORDER BY created_at ASC');
   const out = await Promise.all(rows.map(async (u) => {
     let warnDefault = false;
     if (u.username === 'admin') {
       warnDefault = await bcrypt.compare('admin123', u.pass_hash);
     }
-    return { username: u.username, role: u.role, location: u.location, created_at: u.created_at, warn_default: warnDefault };
+    return {
+      username: u.username, role: u.role, location: u.location,
+      canManageOwnTickets: !!u.can_manage_own_tickets,
+      created_at: u.created_at, warn_default: warnDefault,
+    };
   }));
   res.json(out);
 });
 
 app.post('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
-  const { username, password, role, location } = req.body || {};
+  const { username, password, role, location, canManageOwnTickets } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Fill in username and password.' });
   if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   if (!['narucilac', 'magacioner', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role.' });
 
   let safeLocation = null;
+  let safeCanManage = false;
   if (role === 'narucilac') {
     if (!['SOHO', 'MEPA'].includes(location)) return res.status(400).json({ error: 'Invalid location.' });
     safeLocation = location;
+    safeCanManage = !!canManageOwnTickets;
   }
 
   const existing = await pool.query('SELECT username FROM users WHERE lower(username) = lower($1)', [username]);
   if (existing.rows.length) return res.status(409).json({ error: 'Username already exists.' });
 
   const hash = await bcrypt.hash(password, 10);
-  await pool.query('INSERT INTO users (username, pass_hash, role, location) VALUES ($1,$2,$3,$4)', [username.trim(), hash, role, safeLocation]);
+  await pool.query(
+    'INSERT INTO users (username, pass_hash, role, location, can_manage_own_tickets) VALUES ($1,$2,$3,$4,$5)',
+    [username.trim(), hash, role, safeLocation, safeCanManage]
+  );
   res.json({ ok: true });
 });
 
@@ -486,6 +585,16 @@ app.patch('/api/users/:username', requireAuth, requireRole('admin'), async (req,
   if (!password || password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   const hash = await bcrypt.hash(password, 10);
   await pool.query('UPDATE users SET pass_hash = $1 WHERE username = $2', [hash, req.params.username]);
+  res.json({ ok: true });
+});
+
+app.patch('/api/users/:username/permissions', requireAuth, requireRole('admin'), async (req, res) => {
+  const { canManageOwnTickets } = req.body || {};
+  const { rows } = await pool.query('SELECT role FROM users WHERE username = $1', [req.params.username]);
+  if (!rows.length) return res.status(404).json({ error: 'User does not exist.' });
+  if (rows[0].role !== 'narucilac') return res.status(400).json({ error: 'This permission only applies to Requester accounts.' });
+
+  await pool.query('UPDATE users SET can_manage_own_tickets = $1 WHERE username = $2', [!!canManageOwnTickets, req.params.username]);
   res.json({ ok: true });
 });
 
