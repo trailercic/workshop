@@ -93,6 +93,10 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_at BIGINT;`);
 
+  // Tracks whether the "sitting in New too long" SMS alert has already
+  // been sent for this order, so it doesn't get texted repeatedly.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stale_notified_at BIGINT;`);
+
   // Full audit trail: one row per action taken on an order.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_events (
