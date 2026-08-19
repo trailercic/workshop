@@ -43,6 +43,9 @@ async function initDb() {
   await pool.query(`
     ALTER TABLE users ALTER COLUMN location DROP DEFAULT;
   `);
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS can_manage_own_tickets BOOLEAN NOT NULL DEFAULT false;
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS orders (
@@ -85,6 +88,10 @@ async function initDb() {
   // Tracks when an order entered the Ready column, so it can be
   // auto-issued after sitting there untouched for too long.
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ready_at BIGINT;`);
+
+  // Lets a requester (with permission) withdraw their own order before it's issued.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_at BIGINT;`);
 
   // Full audit trail: one row per action taken on an order.
   await pool.query(`
