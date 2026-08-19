@@ -126,6 +126,10 @@
   .items-preview .item-line.state-yellow .dot{ background: var(--yellow); border-color: var(--yellow); }
   .items-preview .item-line.state-red{ border-left-color: var(--red); }
   .items-preview .item-line.state-red .dot{ background: var(--red); border-color: var(--red); }
+  .items-preview .item-line.state-removed{ border-left-color: var(--red); background: rgba(193,68,14,0.08); opacity:0.7; cursor:default; }
+  .items-preview .item-line.state-removed .dot{ background: var(--red); border-color: var(--red); }
+  .items-preview .item-line.state-removed span:first-child{ text-decoration: line-through; }
+  .item-removed-tag{ font-family: var(--font-mono); font-size:9px; letter-spacing:1px; color: var(--red); border:1px solid var(--red); padding:1px 5px; border-radius:2px; margin-left:6px; text-decoration:none !important; display:inline-block; }
   .item-line-wrap{ margin-bottom:2px; }
   .item-photo-row{ display:flex; align-items:center; gap:8px; padding:0 8px 6px; }
   .item-thumb{ width:36px; height:36px; object-fit:cover; border-radius:2px; border:1px solid var(--line); cursor:pointer; }
@@ -233,6 +237,11 @@
 
   .admin-note{ font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); background: rgba(242,169,0,0.08); border:1px solid var(--amber-dim); padding:9px 11px; margin-bottom:14px; }
   .admin-note.hidden{ display:none; }
+  .checkbox-field{ display:flex; align-items:center; }
+  .checkbox-label{ display:flex !important; align-items:center; gap:8px; font-family: var(--font-body) !important; text-transform:none !important; letter-spacing:0 !important; font-size:13px !important; color: var(--paper) !important; cursor:pointer; }
+  .checkbox-label input[type="checkbox"]{ width:16px; height:16px; accent-color: var(--amber); cursor:pointer; }
+  .manage-toggle{ display:flex; justify-content:center; }
+  .manage-toggle input[type="checkbox"]{ width:16px; height:16px; accent-color: var(--amber); cursor:pointer; }
 
   .history-item{ border: 1px solid var(--line); border-left: 4px solid var(--green); background: var(--bg); padding: 14px 16px; margin-bottom: 12px; }
   .history-item .h-head{ display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
@@ -245,6 +254,16 @@
   .timeline li .t-action{ color: var(--paper); text-transform:uppercase; letter-spacing:0.5px; min-width: 90px; }
   .timeline li .t-actor{ color: var(--amber); }
   .empty-note.history{ padding: 30px 8px; }
+  .mt-items{ margin: 8px 0; }
+  .mt-item{ display:flex; justify-content:space-between; align-items:center; font-size:13px; color: var(--paper-dim); padding:6px 0; border-bottom:1px solid var(--line); }
+  .mt-item-removed{ opacity:0.6; }
+  .mt-item-removed span:first-child{ text-decoration: line-through; }
+  .mt-item .qty{ color: var(--amber); }
+  .mt-remove-item{ font-family: var(--font-mono); font-size:10px; text-transform:uppercase; background: transparent; border:1px solid var(--line); color: var(--paper-dim); padding:4px 8px; border-radius:2px; cursor:pointer; }
+  .mt-remove-item:hover{ border-color: var(--red); color: var(--red); }
+  .mt-remove-item:disabled{ opacity:0.3; cursor:default; }
+  .mt-cancel{ margin-top:8px; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:11px; padding:8px 14px; border-radius:2px; cursor:pointer; background: transparent; border:1px solid var(--red); color: var(--red); }
+  .mt-cancel:hover{ background: var(--red); color:#fff; }
 
   @media (max-width: 800px){
     .board{ grid-template-columns: 1fr; }
@@ -358,7 +377,7 @@
         <h2>Users</h2>
         <div class="admin-note hidden" id="default-admin-note">The "admin" account is still using the default password. We recommend changing it right away.</div>
         <table class="users">
-          <thead><tr><th>Username</th><th>Role</th><th>Location</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Username</th><th>Role</th><th>Location</th><th>Manage Tickets</th><th>Actions</th></tr></thead>
           <tbody id="users-tbody"></tbody>
         </table>
       </div>
@@ -387,6 +406,9 @@
             <option value="MEPA">MEPA</option>
           </select>
         </div>
+        <div class="field checkbox-field" id="manage-field">
+          <label class="checkbox-label"><input type="checkbox" id="a-can-manage"> Super Requester — can withdraw/edit ANY ticket</label>
+        </div>
         <button class="submit-btn" id="add-user-btn">Add User</button>
         <div class="login-error" id="admin-error"></div>
       </div>
@@ -405,6 +427,13 @@
         <input id="history-search" type="text" placeholder="Search service order, requester, issued by, part name...">
       </div>
       <div id="history-list"></div>
+    </div>
+  </div>
+
+  <div id="view-mytickets" class="view">
+    <div class="panel">
+      <h2>Manage Tickets</h2>
+      <div id="mytickets-list"></div>
     </div>
   </div>
 
@@ -433,7 +462,15 @@
 
   const ROLE_LABEL = { narucilac: 'Requester', magacioner: 'Warehouse', admin: 'Admin' };
   const ROLE_VIEWS = { narucilac: ['order'], magacioner: ['display'], admin: ['order','display','admin','history'] };
-  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users', history: 'History' };
+  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users', history: 'History', mytickets: 'Manage Tickets' };
+
+  function getUserViews(){
+    const base = ROLE_VIEWS[currentUser.role] || [];
+    if(currentUser.role === 'narucilac' && currentUser.canManageOwnTickets){
+      return [...base, 'mytickets'];
+    }
+    return base;
+  }
 
   const $ = (id) => document.getElementById(id);
 
@@ -493,11 +530,11 @@
 
   async function enterApp(){
     buildTopbarRight();
-    setView(ROLE_VIEWS[currentUser.role][0]);
+    setView(getUserViews()[0]);
   }
 
   function buildTopbarRight(){
-    const views = ROLE_VIEWS[currentUser.role];
+    const views = getUserViews();
     const right = $('topbar-right');
     right.innerHTML = '';
 
@@ -526,7 +563,7 @@
   }
 
   function setView(view){
-    ['login','order','display','admin','history'].forEach(v => $('view-' + v).classList.toggle('active', v === view));
+    ['login','order','display','admin','history','mytickets'].forEach(v => $('view-' + v).classList.toggle('active', v === view));
     if(currentUser){
       document.querySelectorAll('#topbar-right .switch button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     }
@@ -540,6 +577,8 @@
       refreshUsers();
     } else if(view === 'history'){
       refreshHistory();
+    } else if(view === 'mytickets'){
+      refreshMyTickets();
     } else if(view === 'order'){
       setNextNum();
       if($('items-list').children.length === 0) resetItemRows();
@@ -850,19 +889,21 @@
       `;
     } else {
       const items = Array.isArray(o.items) ? o.items : [];
-      const interactive = allowActions && (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
+      const interactiveBase = allowActions && (status === 'u_obradi' || status === 'ceka_delove') && !SCREEN_MODE;
       const canPhoto = allowActions && !SCREEN_MODE && currentUser && currentUser.role !== 'magacioner';
       const itemsHtml = items.map((it, idx) => {
-        const state = status === 'spremno' ? 'green' : (it.state || 'none');
+        const isRemoved = it.state === 'removed';
+        const state = isRemoved ? 'removed' : (status === 'spremno' ? 'green' : (it.state || 'none'));
+        const interactive = interactiveBase && !isRemoved;
         return `
         <div class="item-line-wrap">
           <div class="item-line${interactive ? ' toggleable' : ''} state-${state}" ${interactive ? `data-idx="${idx}"` : ''}>
-            <span><span class="dot"></span>${escapeHtml(it.part)}</span>
+            <span><span class="dot"></span>${escapeHtml(it.part)}${isRemoved ? `<span class="item-removed-tag">REMOVED${it.removedBy ? ' · ' + escapeHtml(it.removedBy) : ''}</span>` : ''}</span>
             <span class="qty">×${it.qty}</span>
           </div>
           <div class="item-photo-row">
             ${it.photo ? `<img class="item-thumb" data-idx="${idx}" src="${it.photo}" alt="${escapeHtml(it.part)}">` : ''}
-            ${canPhoto ? `<button type="button" class="photo-btn" data-idx="${idx}">${it.photo ? '📷 Replace' : '📷 Add photo'}</button>` : ''}
+            ${canPhoto && !isRemoved ? `<button type="button" class="photo-btn" data-idx="${idx}">${it.photo ? '📷 Replace' : '📷 Add photo'}</button>` : ''}
           </div>
         </div>
       `;
@@ -882,7 +923,7 @@
         </div>
         <div class="actions"></div>
       `;
-      if(interactive){
+      if(interactiveBase){
         card.querySelectorAll('.item-line.toggleable').forEach(line => {
           line.addEventListener('click', async (e) => {
             e.stopPropagation();
@@ -1206,11 +1247,84 @@
     } catch(e){ alert(e.message); }
   }
 
+  // ---------- requester: my tickets ----------
+  const MY_STATUS_LABEL = { novo: 'New', u_obradi: 'In Progress', ceka_delove: 'Waiting for Parts', spremno: 'Ready' };
+
+  async function refreshMyTickets(){
+    const list = $('mytickets-list');
+    try{
+      const myOrders = await api('/api/my-orders');
+      list.innerHTML = '';
+
+      if(myOrders.length === 0){
+        const empty = document.createElement('div');
+        empty.className = 'empty-note history';
+        empty.textContent = 'No tickets to manage yet.';
+        list.appendChild(empty);
+        return;
+      }
+
+      myOrders.forEach(o => {
+        const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
+        const items = Array.isArray(o.items) ? o.items : [];
+        const isDone = !!(o.issued_at || o.cancelled_at);
+        const statusText = o.issued_at ? 'Issued' : o.cancelled_at ? 'Cancelled' : (MY_STATUS_LABEL[o.status] || o.status);
+        const activeCount = items.filter(it => it.state !== 'removed').length;
+
+        const itemsHtml = items.map((it, idx) => {
+          const isRemoved = it.state === 'removed';
+          return `
+          <div class="mt-item${isRemoved ? ' mt-item-removed' : ''}">
+            <span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span>${isRemoved ? `<span class="item-removed-tag">REMOVED${it.removedBy ? ' · ' + escapeHtml(it.removedBy) : ''}</span>` : ''}</span>
+            ${!isDone && !isRemoved ? `<button type="button" class="mt-remove-item" data-id="${o.id}" data-idx="${idx}" ${activeCount <= 1 ? 'disabled title="Withdraw the ticket instead"' : ''}>Remove</button>` : ''}
+          </div>
+        `;
+        }).join('');
+
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.innerHTML = `
+          <div class="h-head">
+            <span class="h-title">${label}</span>
+            <span class="h-meta">${statusText} · requested by ${escapeHtml(o.requester)} · ${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span>
+          </div>
+          <div class="mt-items">${itemsHtml}</div>
+          ${!isDone ? `<button type="button" class="mt-cancel danger" data-id="${o.id}">Withdraw Ticket</button>` : ''}
+        `;
+
+        div.querySelectorAll('.mt-remove-item').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if(!confirm('Remove "' + items[parseInt(btn.dataset.idx, 10)].part + '" from this order?')) return;
+            try{
+              await api('/api/orders/' + btn.dataset.id + '/items/' + btn.dataset.idx, { method: 'DELETE' });
+              refreshMyTickets();
+            } catch(e){ alert(e.message); }
+          });
+        });
+        const cancelBtn = div.querySelector('.mt-cancel');
+        if(cancelBtn){
+          cancelBtn.addEventListener('click', async () => {
+            if(!confirm('Withdraw this whole ticket? This cannot be undone.')) return;
+            try{
+              await api('/api/orders/' + cancelBtn.dataset.id + '/cancel', { method: 'POST' });
+              refreshMyTickets();
+            } catch(e){ alert(e.message); }
+          });
+        }
+
+        list.appendChild(div);
+      });
+    } catch(e){
+      if(e.status === 401){ logout(); }
+    }
+  }
+
   // ---------- admin: history ----------
   const ACTION_LABEL = {
     created: 'Created', claimed: 'Claimed', waiting: 'Waiting for parts', resumed: 'Resumed',
     ready: 'Marked ready', reopened: 'Sent back to progress', issued: 'Issued',
-    item_marked: 'Part marked', note_updated: 'Note updated',
+    cancelled: 'Withdrawn by requester', item_removed: 'Part removed by requester',
+    returned_to_progress: 'Returned to In Progress', item_marked: 'Part marked', note_updated: 'Note updated',
   };
 
   let historyData = [];
@@ -1228,7 +1342,7 @@
   function historySearchText(o){
     const items = Array.isArray(o.items) ? o.items : [];
     return [
-      o.service_order || '', o.id, o.requester, o.issued_by, o.location,
+      o.service_order || '', o.id, o.requester, o.issued_by, o.cancelled_by, o.location,
       ...items.map(it => it.part),
     ].join(' ').toLowerCase();
   }
@@ -1266,10 +1380,13 @@
 
       const div = document.createElement('div');
       div.className = 'history-item';
+      const finalMeta = o.issued_at
+        ? `issued by ${escapeHtml(o.issued_by)} on ${dateTime(Number(o.issued_at))}`
+        : `cancelled by ${escapeHtml(o.cancelled_by)} on ${dateTime(Number(o.cancelled_at))}`;
       div.innerHTML = `
         <div class="h-head">
           <span class="h-title">${label}</span>
-          <span class="h-meta">${escapeHtml(o.location)} · requested by ${escapeHtml(o.requester)} · issued by ${escapeHtml(o.issued_by)} on ${dateTime(Number(o.issued_at))}</span>
+          <span class="h-meta">${escapeHtml(o.location)} · requested by ${escapeHtml(o.requester)} · ${finalMeta}</span>
         </div>
         <div class="h-items">${itemsText}</div>
         <ul class="timeline">${timelineHtml}</ul>
@@ -1306,6 +1423,9 @@
         <td>${escapeHtml(u.username)}</td>
         <td><span class="role-badge ${u.role}">${ROLE_LABEL[u.role]}</span></td>
         <td>${u.location ? `<span class="location-badge">${escapeHtml(u.location)}</span>` : '<span style="color:var(--paper-dim);opacity:0.5;">—</span>'}</td>
+        <td>${u.role === 'narucilac'
+          ? `<div class="manage-toggle"><input type="checkbox" data-action="manage-toggle" ${u.canManageOwnTickets ? 'checked' : ''}></div>`
+          : '<span style="color:var(--paper-dim);opacity:0.5;">—</span>'}</td>
         <td>
           <div class="row-actions">
             <button data-action="pw">Password</button>
@@ -1317,6 +1437,21 @@
           </div>
         </td>
       `;
+
+      const manageToggle = tr.querySelector('[data-action="manage-toggle"]');
+      if(manageToggle){
+        manageToggle.addEventListener('change', async () => {
+          try{
+            await api('/api/users/' + encodeURIComponent(u.username) + '/permissions', {
+              method: 'PATCH',
+              body: JSON.stringify({ canManageOwnTickets: manageToggle.checked }),
+            });
+          } catch(e){
+            alert(e.message);
+            manageToggle.checked = !manageToggle.checked;
+          }
+        });
+      }
 
       tr.querySelector('[data-action="pw"]').addEventListener('click', () => {
         tr.querySelector('.pw-inline').classList.toggle('hidden');
@@ -1353,7 +1488,9 @@
   }
 
   function updateLocationFieldVisibility(){
-    $('location-field').style.display = $('a-role').value === 'narucilac' ? '' : 'none';
+    const isRequester = $('a-role').value === 'narucilac';
+    $('location-field').style.display = isRequester ? '' : 'none';
+    $('manage-field').style.display = isRequester ? '' : 'none';
   }
   $('a-role').addEventListener('change', updateLocationFieldVisibility);
   updateLocationFieldVisibility();
@@ -1363,12 +1500,13 @@
     const password = $('a-password').value;
     const role = $('a-role').value;
     const location = role === 'narucilac' ? $('a-location').value : null;
+    const canManageOwnTickets = role === 'narucilac' ? $('a-can-manage').checked : false;
     const errEl = $('admin-error');
     errEl.classList.remove('show');
 
     try{
-      await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password, role, location }) });
-      $('a-username').value = ''; $('a-password').value = '';
+      await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password, role, location, canManageOwnTickets }) });
+      $('a-username').value = ''; $('a-password').value = ''; $('a-can-manage').checked = false;
       refreshUsers();
     } catch(e){
       errEl.textContent = e.message;
@@ -1408,7 +1546,7 @@
       document.body.classList.add('screen-mode');
       const right = $('topbar-right');
       right.innerHTML = '<div class="user-chip"><span class="role-badge screen">Live Display' + (SCREEN_LOCATION ? ' · ' + SCREEN_LOCATION : ' · Read Only') + '</span></div>';
-      ['login','order','display','admin','history'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
+      ['login','order','display','admin','history','mytickets'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
       setupLocationSwitch();
       buildBoardSkeleton();
       await refreshOrders();
