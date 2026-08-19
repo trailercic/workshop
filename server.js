@@ -4,6 +4,7 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const RingCentralSDK = require('@ringcentral/sdk').SDK;
 const { pool, initDb } = require('./db');
 
 const app = express();
@@ -618,6 +619,69 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ---------- SMS alerts via RingCentral ----------
+// Texts the warehouse when a ticket has been sitting unclaimed in "New"
+// for too long. Requires RC_CLIENT_ID, RC_CLIENT_SECRET, RC_JWT,
+// RC_FROM_NUMBER, and RC_TO_NUMBER to be set — if they aren't, this
+// feature quietly does nothing rather than crashing the app.
+const RC_SERVER = process.env.RC_SERVER || 'https://platform.ringcentral.com';
+const SMS_CONFIGURED = !!(
+  process.env.RC_CLIENT_ID && process.env.RC_CLIENT_SECRET && process.env.RC_JWT &&
+  process.env.RC_FROM_NUMBER && process.env.RC_TO_NUMBER
+);
+
+let rcPlatform = null;
+if (SMS_CONFIGURED) {
+  const rcsdk = new RingCentralSDK({
+    server: RC_SERVER,
+    clientId: process.env.RC_CLIENT_ID,
+    clientSecret: process.env.RC_CLIENT_SECRET,
+  });
+  rcPlatform = rcsdk.platform();
+} else {
+  console.log('SMS alerts disabled — RingCentral environment variables are not fully set.');
+}
+
+async function sendSms(text) {
+  if (!SMS_CONFIGURED || !rcPlatform) return;
+  try {
+    await rcPlatform.login({ jwt: process.env.RC_JWT });
+    const toNumbers = process.env.RC_TO_NUMBER.split(',').map((n) => n.trim()).filter(Boolean);
+    await rcPlatform.post('/restapi/v1.0/account/~/extension/~/sms', {
+      from: { phoneNumber: process.env.RC_FROM_NUMBER },
+      to: toNumbers.map((phoneNumber) => ({ phoneNumber })),
+      text,
+    });
+  } catch (err) {
+    console.error('Failed to send SMS via RingCentral:', err.message || err);
+  }
+}
+
+// ---------- alert warehouse about tickets stuck in New ----------
+const STALE_NEW_ALERT_MS = 15 * 60 * 1000; // 15 minutes
+const STALE_NEW_CHECK_INTERVAL_MS = 2 * 60 * 1000; // check every 2 minutes
+
+async function alertStaleNewOrders() {
+  if (!SMS_CONFIGURED) return;
+  try {
+    const cutoff = Date.now() - STALE_NEW_ALERT_MS;
+    const { rows } = await pool.query(
+      "SELECT id, service_order, location FROM orders WHERE status = 'novo' AND created_at <= $1 AND stale_notified_at IS NULL",
+      [cutoff]
+    );
+    if (rows.length === 0) return;
+
+    for (const row of rows) {
+      const label = row.service_order || ('#' + row.id.slice(-6));
+      await sendSms(`Workshop alert: ticket ${label} (${row.location}) has been waiting 15+ min unclaimed in New.`);
+      await pool.query('UPDATE orders SET stale_notified_at = $1 WHERE id = $2', [Date.now(), row.id]);
+      await logEvent(row.id, 'sms_alert_sent', 'auto', '15+ minutes unclaimed');
+    }
+  } catch (err) {
+    console.error('Stale-ticket SMS check failed:', err);
+  }
+}
+
 // ---------- auto-issue orders left sitting in Ready too long ----------
 const READY_AUTO_ISSUE_MS = 60 * 60 * 1000; // 1 hour
 const AUTO_ISSUE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // check every 5 minutes
@@ -645,6 +709,7 @@ initDb()
   .then(() => {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
     setInterval(autoIssueStaleReadyOrders, AUTO_ISSUE_CHECK_INTERVAL_MS);
+    setInterval(alertStaleNewOrders, STALE_NEW_CHECK_INTERVAL_MS);
   })
   .catch((err) => {
     console.error('Database connection error:', err);
