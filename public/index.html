@@ -121,14 +121,14 @@
   .items-preview .item-line.state-none .dot{ background: transparent; }
   .items-preview .item-line.state-green{ border-left-color: var(--green); }
   .items-preview .item-line.state-green .dot{ background: var(--green); border-color: var(--green); }
-  .items-preview .item-line.state-green span:first-child{ text-decoration: line-through; opacity: 0.75; }
+  .items-preview .item-line.state-green span:first-child{ text-decoration: line-through; text-decoration-color: var(--red); opacity: 0.75; }
   .items-preview .item-line.state-yellow{ border-left-color: var(--yellow); }
   .items-preview .item-line.state-yellow .dot{ background: var(--yellow); border-color: var(--yellow); }
   .items-preview .item-line.state-red{ border-left-color: var(--red); }
   .items-preview .item-line.state-red .dot{ background: var(--red); border-color: var(--red); }
   .items-preview .item-line.state-removed{ border-left-color: var(--red); background: rgba(193,68,14,0.08); opacity:0.7; cursor:default; }
   .items-preview .item-line.state-removed .dot{ background: var(--red); border-color: var(--red); }
-  .items-preview .item-line.state-removed span:first-child{ text-decoration: line-through; }
+  .items-preview .item-line.state-removed span:first-child{ text-decoration: line-through; text-decoration-color: var(--red); }
   .item-removed-tag{ font-family: var(--font-mono); font-size:9px; letter-spacing:1px; color: var(--red); border:1px solid var(--red); padding:1px 5px; border-radius:2px; margin-left:6px; text-decoration:none !important; display:inline-block; }
   .item-line-wrap{ margin-bottom:2px; }
   .item-photo-row{ display:flex; align-items:center; gap:8px; padding:0 8px 6px; }
@@ -257,7 +257,7 @@
   .mt-items{ margin: 8px 0; }
   .mt-item{ display:flex; justify-content:space-between; align-items:center; font-size:13px; color: var(--paper-dim); padding:6px 0; border-bottom:1px solid var(--line); }
   .mt-item-removed{ opacity:0.6; }
-  .mt-item-removed span:first-child{ text-decoration: line-through; }
+  .mt-item-removed span:first-child{ text-decoration: line-through; text-decoration-color: var(--red); }
   .mt-item .qty{ color: var(--amber); }
   .mt-remove-item{ font-family: var(--font-mono); font-size:10px; text-transform:uppercase; background: transparent; border:1px solid var(--line); color: var(--paper-dim); padding:4px 8px; border-radius:2px; cursor:pointer; }
   .mt-remove-item:hover{ border-color: var(--red); color: var(--red); }
