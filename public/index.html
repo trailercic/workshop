@@ -55,6 +55,7 @@
   .role-badge.narucilac{ color: var(--steel); border-color: var(--steel); }
   .role-badge.magacioner{ color: var(--amber); border-color: var(--amber-dim); }
   .role-badge.admin{ color: var(--red); border-color: var(--red); }
+  .role-badge.estimator{ color: var(--yellow); border-color: var(--yellow); }
   .role-badge.screen{ color: var(--green); border-color: var(--green); }
   .location-badge{ padding:3px 8px; border-radius:2px; letter-spacing:1px; text-transform:uppercase; font-size:10px; border:1px solid var(--line); color: var(--paper-dim); font-family: var(--font-mono); }
   .logout-btn{ background:transparent; border:1px solid var(--line); color: var(--paper-dim); font-family: var(--font-mono); font-size:11px; padding:6px 10px; border-radius:2px; cursor:pointer; }
@@ -343,6 +344,10 @@
           <textarea id="f-note" placeholder="Additional details..."></textarea>
         </div>
 
+        <div class="field checkbox-field">
+          <label class="checkbox-label"><input type="checkbox" id="f-estimate"> Estimate (needs approval before it reaches the warehouse)</label>
+        </div>
+
         <button class="submit-btn" id="submit-btn">Submit Order</button>
         <div class="login-error" id="order-error"></div>
 
@@ -396,6 +401,7 @@
           <select id="a-role">
             <option value="narucilac">Requester</option>
             <option value="magacioner">Warehouse</option>
+            <option value="estimator">Estimator</option>
             <option value="admin">Admin</option>
           </select>
         </div>
@@ -437,6 +443,13 @@
     </div>
   </div>
 
+  <div id="view-estimates" class="view">
+    <div class="panel">
+      <h2>Estimates</h2>
+      <div id="estimates-list"></div>
+    </div>
+  </div>
+
 </div>
 
 <div id="ticket-modal" class="modal-overlay hidden">
@@ -460,9 +473,9 @@
   let priority = 'normal';
   let pollTimer = null;
 
-  const ROLE_LABEL = { narucilac: 'Requester', magacioner: 'Warehouse', admin: 'Admin' };
-  const ROLE_VIEWS = { narucilac: ['order'], magacioner: ['display'], admin: ['order','display','admin','history'] };
-  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users', history: 'History', mytickets: 'Manage Tickets' };
+  const ROLE_LABEL = { narucilac: 'Requester', magacioner: 'Warehouse', admin: 'Admin', estimator: 'Estimator' };
+  const ROLE_VIEWS = { narucilac: ['order'], magacioner: ['display'], estimator: ['estimates'], admin: ['order','display','admin','history','estimates'] };
+  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users', history: 'History', mytickets: 'Manage Tickets', estimates: 'Estimates' };
 
   function getUserViews(){
     const base = ROLE_VIEWS[currentUser.role] || [];
@@ -563,7 +576,7 @@
   }
 
   function setView(view){
-    ['login','order','display','admin','history','mytickets'].forEach(v => $('view-' + v).classList.toggle('active', v === view));
+    ['login','order','display','admin','history','mytickets','estimates'].forEach(v => $('view-' + v).classList.toggle('active', v === view));
     if(currentUser){
       document.querySelectorAll('#topbar-right .switch button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     }
@@ -579,6 +592,8 @@
       refreshHistory();
     } else if(view === 'mytickets'){
       refreshMyTickets();
+    } else if(view === 'estimates'){
+      refreshEstimates();
     } else if(view === 'order'){
       setNextNum();
       if($('items-list').children.length === 0) resetItemRows();
@@ -747,7 +762,7 @@
     $('submit-btn').textContent = 'Sending...';
 
     try{
-      const result = await api('/api/orders', { method: 'POST', body: JSON.stringify({ serviceOrder, items, note, priority }) });
+      const result = await api('/api/orders', { method: 'POST', body: JSON.stringify({ serviceOrder, items, note, priority, isEstimate: $('f-estimate').checked }) });
       $('confirm-num').textContent = result.ticket;
       const soNote = $('confirm-so-note');
       if(result.serviceOrder && serviceOrder && result.serviceOrder.toLowerCase() !== serviceOrder.toLowerCase()){
@@ -767,7 +782,7 @@
   });
 
   $('confirm-new').addEventListener('click', () => {
-    $('f-service-order').value = ''; $('f-note').value = '';
+    $('f-service-order').value = ''; $('f-note').value = ''; $('f-estimate').checked = false;
     resetItemRows();
     document.querySelectorAll('.priority-toggle button').forEach(b => b.classList.remove('active'));
     document.querySelector('.priority-toggle button[data-p="normal"]').classList.add('active');
@@ -1247,6 +1262,57 @@
     } catch(e){ alert(e.message); }
   }
 
+  // ---------- estimator: estimate approvals ----------
+  async function refreshEstimates(){
+    const list = $('estimates-list');
+    try{
+      const estimates = await api('/api/estimates');
+      list.innerHTML = '';
+
+      if(estimates.length === 0){
+        const empty = document.createElement('div');
+        empty.className = 'empty-note history';
+        empty.textContent = 'No estimates waiting for approval.';
+        list.appendChild(empty);
+        return;
+      }
+
+      estimates.forEach(o => {
+        const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
+        const items = Array.isArray(o.items) ? o.items : [];
+        const itemsText = items.map(it => `<span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>`).join(', ');
+
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.innerHTML = `
+          <div class="h-head">
+            <span class="h-title">${label}</span>
+            <span class="h-meta">${escapeHtml(o.location)} · requested by ${escapeHtml(o.requester)} · ${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span>
+          </div>
+          <div class="h-items">${itemsText}</div>
+          ${o.note ? `<div class="note" style="margin-top:8px;">${escapeHtml(o.note)}</div>` : ''}
+          <button type="button" class="submit-btn est-approve" data-id="${o.id}" style="margin-top:10px;">Approve — Send to Warehouse</button>
+        `;
+        div.querySelector('.est-approve').addEventListener('click', async (e) => {
+          const btn = e.target;
+          btn.disabled = true;
+          btn.textContent = 'Approving...';
+          try{
+            await api('/api/orders/' + o.id + '/approve-estimate', { method: 'POST' });
+            refreshEstimates();
+          } catch(err){
+            alert(err.message);
+            btn.disabled = false;
+            btn.textContent = 'Approve — Send to Warehouse';
+          }
+        });
+        list.appendChild(div);
+      });
+    } catch(e){
+      if(e.status === 401){ logout(); }
+    }
+  }
+
   // ---------- requester: my tickets ----------
   const MY_STATUS_LABEL = { novo: 'New', u_obradi: 'In Progress', ceka_delove: 'Waiting for Parts', spremno: 'Ready' };
 
@@ -1325,7 +1391,7 @@
     ready: 'Marked ready', reopened: 'Sent back to progress', issued: 'Issued',
     cancelled: 'Withdrawn by requester', item_removed: 'Part removed by requester',
     returned_to_progress: 'Returned to In Progress', item_marked: 'Part marked', note_updated: 'Note updated',
-    sms_alert_sent: 'SMS alert sent to warehouse',
+    sms_alert_sent: 'SMS alert sent to warehouse', estimate_approved: 'Estimate approved',
   };
 
   let historyData = [];
@@ -1547,7 +1613,7 @@
       document.body.classList.add('screen-mode');
       const right = $('topbar-right');
       right.innerHTML = '<div class="user-chip"><span class="role-badge screen">Live Display' + (SCREEN_LOCATION ? ' · ' + SCREEN_LOCATION : ' · Read Only') + '</span></div>';
-      ['login','order','display','admin','history','mytickets'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
+      ['login','order','display','admin','history','mytickets','estimates'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
       setupLocationSwitch();
       buildBoardSkeleton();
       await refreshOrders();
