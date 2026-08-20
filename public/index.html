@@ -265,6 +265,11 @@
   .mt-remove-item:disabled{ opacity:0.3; cursor:default; }
   .mt-cancel{ margin-top:8px; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:11px; padding:8px 14px; border-radius:2px; cursor:pointer; background: transparent; border:1px solid var(--red); color: var(--red); }
   .mt-cancel:hover{ background: var(--red); color:#fff; }
+  .add-part-row{ display:flex; gap:8px; margin-top:10px; }
+  .add-part-row .est-add-part{ flex:1; background: var(--bg); border:1px solid var(--line); color: var(--paper); font-family: var(--font-body); font-size:13px; padding:8px 10px; border-radius:2px; }
+  .add-part-row .est-add-qty{ width:60px; background: var(--bg); border:1px solid var(--line); color: var(--paper); font-family: var(--font-body); font-size:13px; padding:8px 10px; border-radius:2px; }
+  .add-part-row .est-add-btn{ font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:11px; padding:8px 14px; border-radius:2px; cursor:pointer; background: var(--steel); border:1px solid var(--steel); color:#fff; white-space:nowrap; }
+  .add-part-row .est-add-btn:hover{ background: #5c7f9c; }
 
   @media (max-width: 800px){
     .board{ grid-template-columns: 1fr; }
@@ -1280,7 +1285,17 @@
       estimates.forEach(o => {
         const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
         const items = Array.isArray(o.items) ? o.items : [];
-        const itemsText = items.map(it => `<span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>`).join(', ');
+        const activeCount = items.filter(it => it.state !== 'removed').length;
+
+        const itemsHtml = items.map((it, idx) => {
+          const isRemoved = it.state === 'removed';
+          return `
+          <div class="mt-item${isRemoved ? ' mt-item-removed' : ''}">
+            <span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span>${isRemoved ? `<span class="item-removed-tag">REMOVED${it.removedBy ? ' · ' + escapeHtml(it.removedBy) : ''}</span>` : ''}</span>
+            ${!isRemoved ? `<button type="button" class="mt-remove-item" data-idx="${idx}" ${activeCount <= 1 ? 'disabled title="Withdraw the ticket instead"' : ''}>Remove</button>` : ''}
+          </div>
+        `;
+        }).join('');
 
         const div = document.createElement('div');
         div.className = 'history-item';
@@ -1289,10 +1304,41 @@
             <span class="h-title">${label}</span>
             <span class="h-meta">${escapeHtml(o.location)} · requested by ${escapeHtml(o.requester)} · ${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span>
           </div>
-          <div class="h-items">${itemsText}</div>
+          <div class="mt-items">${itemsHtml}</div>
+          <div class="add-part-row">
+            <input type="text" class="est-add-part" placeholder="Add a part...">
+            <input type="number" class="est-add-qty" min="1" value="1">
+            <button type="button" class="est-add-btn">+ Add</button>
+          </div>
           ${o.note ? `<div class="note" style="margin-top:8px;">${escapeHtml(o.note)}</div>` : ''}
           <button type="button" class="submit-btn est-approve" data-id="${o.id}" style="margin-top:10px;">Approve — Send to Warehouse</button>
         `;
+
+        div.querySelectorAll('.mt-remove-item').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const idx = btn.dataset.idx;
+            if(!confirm('Remove "' + items[parseInt(idx, 10)].part + '" from this estimate?')) return;
+            try{
+              await api('/api/orders/' + o.id + '/items/' + idx, { method: 'DELETE' });
+              refreshEstimates();
+            } catch(err){ alert(err.message); }
+          });
+        });
+
+        div.querySelector('.est-add-btn').addEventListener('click', async () => {
+          const partInput = div.querySelector('.est-add-part');
+          const qtyInput = div.querySelector('.est-add-qty');
+          const part = partInput.value.trim();
+          if(!part) { partInput.focus(); return; }
+          try{
+            await api('/api/orders/' + o.id + '/items', {
+              method: 'POST',
+              body: JSON.stringify({ part, qty: parseInt(qtyInput.value, 10) || 1 }),
+            });
+            refreshEstimates();
+          } catch(err){ alert(err.message); }
+        });
+
         div.querySelector('.est-approve').addEventListener('click', async (e) => {
           const btn = e.target;
           btn.disabled = true;
@@ -1389,7 +1435,7 @@
   const ACTION_LABEL = {
     created: 'Created', claimed: 'Claimed', waiting: 'Waiting for parts', resumed: 'Resumed',
     ready: 'Marked ready', reopened: 'Sent back to progress', issued: 'Issued',
-    cancelled: 'Withdrawn by requester', item_removed: 'Part removed by requester',
+    cancelled: 'Withdrawn by requester', item_removed: 'Part removed', item_added: 'Part added',
     returned_to_progress: 'Returned to In Progress', item_marked: 'Part marked', note_updated: 'Note updated',
     sms_alert_sent: 'SMS alert sent to warehouse', estimate_approved: 'Estimate approved',
   };
