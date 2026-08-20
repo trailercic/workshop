@@ -26,7 +26,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS users (
       username    TEXT PRIMARY KEY,
       pass_hash   TEXT NOT NULL,
-      role        TEXT NOT NULL CHECK (role IN ('narucilac','magacioner','admin')),
+      role        TEXT NOT NULL CHECK (role IN ('narucilac','magacioner','admin','estimator')),
       location    TEXT CHECK (location IN ('SOHO','MEPA')),
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
@@ -46,6 +46,11 @@ async function initDb() {
   await pool.query(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS can_manage_own_tickets BOOLEAN NOT NULL DEFAULT false;
   `);
+
+  // Migration: allow the new 'estimator' role for installs whose CHECK
+  // constraint predates this value.
+  await pool.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;`);
+  await pool.query(`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('narucilac','magacioner','admin','estimator'));`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS orders (
@@ -96,6 +101,12 @@ async function initDb() {
   // Tracks whether the "sitting in New too long" SMS alert has already
   // been sent for this order, so it doesn't get texted repeatedly.
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stale_notified_at BIGINT;`);
+
+  // Estimate workflow: an order flagged as an estimate is hidden from the
+  // normal warehouse board until an Estimator (or admin) approves it.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_estimate BOOLEAN NOT NULL DEFAULT false;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimate_approved_by TEXT;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimate_approved_at BIGINT;`);
 
   // Full audit trail: one row per action taken on an order.
   await pool.query(`
