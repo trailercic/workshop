@@ -187,16 +187,42 @@ app.get('/api/me', requireAuth, async (req, res) => {
 });
 
 // ---------- orders routes ----------
+const ACTIVE_BOARD_WHERE = "issued_at IS NULL AND cancelled_at IS NULL AND (is_estimate = false OR estimate_approved_at IS NOT NULL)";
+
 // Public, read-only board for the "screen" role — no login required.
 // Intended for a TV/tablet permanently showing the warehouse display.
 app.get('/api/public/board', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL AND cancelled_at IS NULL ORDER BY created_at ASC');
+  const { rows } = await pool.query(`SELECT * FROM orders WHERE ${ACTIVE_BOARD_WHERE} ORDER BY created_at ASC`);
   res.json(attachLockInfo(rows));
 });
 
 app.get('/api/orders', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM orders WHERE issued_at IS NULL AND cancelled_at IS NULL ORDER BY created_at ASC');
+  const { rows } = await pool.query(`SELECT * FROM orders WHERE ${ACTIVE_BOARD_WHERE} ORDER BY created_at ASC`);
   res.json(attachLockInfo(rows));
+});
+
+// Estimator queue: orders flagged as an estimate, waiting for approval.
+app.get('/api/estimates', requireAuth, requireRole('estimator', 'admin'), async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT * FROM orders WHERE is_estimate = true AND estimate_approved_at IS NULL AND issued_at IS NULL AND cancelled_at IS NULL ORDER BY created_at ASC"
+  );
+  res.json(rows);
+});
+
+app.post('/api/orders/:id/approve-estimate', requireAuth, requireRole('estimator', 'admin'), async (req, res) => {
+  const { rows } = await pool.query('SELECT id, is_estimate, estimate_approved_at FROM orders WHERE id = $1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
+  if (!rows[0].is_estimate) return res.status(400).json({ error: 'This order is not an estimate.' });
+  if (rows[0].estimate_approved_at) return res.status(400).json({ error: 'This estimate was already approved.' });
+
+  await pool.query(
+    'UPDATE orders SET estimate_approved_by = $1, estimate_approved_at = $2 WHERE id = $3',
+    [req.user.username, Date.now(), req.params.id]
+  );
+  await logEvent(req.params.id, 'estimate_approved', req.user.username);
+
+  broadcastUpdate();
+  res.json({ ok: true });
 });
 
 app.get('/api/my-orders', requireAuth, async (req, res) => {
@@ -238,7 +264,7 @@ app.post('/api/orders/:id/unlock', requireAuth, requireRole('magacioner', 'admin
 });
 
 app.post('/api/orders', requireAuth, async (req, res) => {
-  const { serviceOrder, items, note, priority } = req.body || {};
+  const { serviceOrder, items, note, priority, isEstimate } = req.body || {};
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Add at least one part.' });
@@ -287,17 +313,18 @@ app.post('/api/orders', requireAuth, async (req, res) => {
 
   const userRow = await pool.query('SELECT location FROM users WHERE username = $1', [req.user.username]);
   const location = userRow.rows[0]?.location || 'SOHO';
+  const safeIsEstimate = !!isEstimate;
 
   await pool.query(
-    `INSERT INTO orders (id, service_order, requester, note, priority, status, items, location, created_at)
-     VALUES ($1,$2,$3,$4,$5,'novo',$6,$7,$8)`,
-    [id, finalServiceOrder, req.user.username, (note || '').trim(), safePriority, JSON.stringify(cleanItems), location, createdAt]
+    `INSERT INTO orders (id, service_order, requester, note, priority, status, items, location, is_estimate, created_at)
+     VALUES ($1,$2,$3,$4,$5,'novo',$6,$7,$8,$9)`,
+    [id, finalServiceOrder, req.user.username, (note || '').trim(), safePriority, JSON.stringify(cleanItems), location, safeIsEstimate, createdAt]
   );
 
-  await logEvent(id, 'created', req.user.username, finalServiceOrder || null);
+  await logEvent(id, 'created', req.user.username, (finalServiceOrder ? finalServiceOrder : '(no SO)') + (safeIsEstimate ? ' — estimate' : ''));
 
   broadcastUpdate();
-  res.json({ id, ticket: '#' + id.slice(-6), serviceOrder: finalServiceOrder });
+  res.json({ id, ticket: '#' + id.slice(-6), serviceOrder: finalServiceOrder, isEstimate: safeIsEstimate });
 });
 
 const ITEM_STATE_CYCLE = ['none', 'green', 'yellow', 'red'];
