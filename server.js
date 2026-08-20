@@ -587,7 +587,7 @@ app.post('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
   const { username, password, role, location, canManageOwnTickets } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Fill in username and password.' });
   if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
-  if (!['narucilac', 'magacioner', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role.' });
+  if (!['narucilac', 'magacioner', 'admin', 'estimator'].includes(role)) return res.status(400).json({ error: 'Invalid role.' });
 
   let safeLocation = null;
   let safeCanManage = false;
