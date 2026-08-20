@@ -323,6 +323,11 @@ app.post('/api/orders', requireAuth, async (req, res) => {
 
   await logEvent(id, 'created', req.user.username, (finalServiceOrder ? finalServiceOrder : '(no SO)') + (safeIsEstimate ? ' — estimate' : ''));
 
+  if (safeIsEstimate) {
+    const label = finalServiceOrder || ('#' + id.slice(-6));
+    sendSms(`New estimate request: ${label} (${location}) from ${req.user.username} — needs your approval.`, 'RC_ESTIMATOR_NUMBER');
+  }
+
   broadcastUpdate();
   res.json({ id, ticket: '#' + id.slice(-6), serviceOrder: finalServiceOrder, isEstimate: safeIsEstimate });
 });
@@ -647,14 +652,14 @@ app.get('*', (req, res) => {
 });
 
 // ---------- SMS alerts via RingCentral ----------
-// Texts the warehouse when a ticket has been sitting unclaimed in "New"
-// for too long. Requires RC_CLIENT_ID, RC_CLIENT_SECRET, RC_JWT,
-// RC_FROM_NUMBER, and RC_TO_NUMBER to be set — if they aren't, this
-// feature quietly does nothing rather than crashing the app.
+// Texts the warehouse (or estimators) about things that need attention.
+// Requires RC_CLIENT_ID, RC_CLIENT_SECRET, RC_JWT, and RC_FROM_NUMBER —
+// if they aren't set, this feature quietly does nothing rather than
+// crashing the app. RC_TO_NUMBER and RC_ESTIMATOR_NUMBER are each
+// optional independently, so one alert type can work without the other.
 const RC_SERVER = process.env.RC_SERVER || 'https://platform.ringcentral.com';
 const SMS_CONFIGURED = !!(
-  process.env.RC_CLIENT_ID && process.env.RC_CLIENT_SECRET && process.env.RC_JWT &&
-  process.env.RC_FROM_NUMBER && process.env.RC_TO_NUMBER
+  process.env.RC_CLIENT_ID && process.env.RC_CLIENT_SECRET && process.env.RC_JWT && process.env.RC_FROM_NUMBER
 );
 
 let rcPlatform = null;
@@ -669,11 +674,13 @@ if (SMS_CONFIGURED) {
   console.log('SMS alerts disabled — RingCentral environment variables are not fully set.');
 }
 
-async function sendSms(text) {
+async function sendSms(text, toEnvVar = 'RC_TO_NUMBER') {
   if (!SMS_CONFIGURED || !rcPlatform) return;
+  const rawNumbers = process.env[toEnvVar];
+  if (!rawNumbers) return;
   try {
     await rcPlatform.login({ jwt: process.env.RC_JWT });
-    const toNumbers = process.env.RC_TO_NUMBER.split(',').map((n) => n.trim()).filter(Boolean);
+    const toNumbers = rawNumbers.split(',').map((n) => n.trim()).filter(Boolean);
     await rcPlatform.post('/restapi/v1.0/account/~/extension/~/sms', {
       from: { phoneNumber: process.env.RC_FROM_NUMBER },
       to: toNumbers.map((phoneNumber) => ({ phoneNumber })),
