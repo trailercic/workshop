@@ -462,14 +462,14 @@ app.post('/api/orders/:id/issue', requireAuth, requireRole('magacioner', 'admin'
 });
 
 // A requester with the "can manage tickets" permission may withdraw ANY
-// order, or remove a single part from ANY order, at any point before it's
-// actually issued. Admins can always do this too.
+// order, or remove/add a part on ANY order, at any point before it's
+// actually issued. Admins and Estimators can always do this too.
 async function canManageOrder(req, res, order) {
   if (!order) {
     res.status(404).json({ error: 'Order not found.' });
     return false;
   }
-  if (req.user.role !== 'admin') {
+  if (req.user.role !== 'admin' && req.user.role !== 'estimator') {
     const { rows } = await pool.query('SELECT can_manage_own_tickets FROM users WHERE username = $1', [req.user.username]);
     if (!rows.length || !rows[0].can_manage_own_tickets) {
       res.status(403).json({ error: 'You do not have permission to manage tickets.' });
@@ -523,6 +523,34 @@ app.delete('/api/orders/:id/items/:index', requireAuth, async (req, res) => {
   await logEvent(req.params.id, 'item_removed', req.user.username, items[idx].part);
   if (newStatus !== order.status) {
     await logEvent(req.params.id, 'returned_to_progress', req.user.username, `"${items[idx].part}" was removed`);
+  }
+
+  broadcastUpdate();
+  res.json({ ok: true, items, status: newStatus });
+});
+
+app.post('/api/orders/:id/items', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+  const order = rows[0];
+  if (!(await canManageOrder(req, res, order))) return;
+
+  const { part, qty } = req.body || {};
+  const cleanPart = (part || '').toString().trim();
+  if (!cleanPart) return res.status(400).json({ error: 'Part name is required.' });
+  const safeQty = Math.max(1, parseInt(qty, 10) || 1);
+
+  const items = Array.isArray(order.items) ? [...order.items] : [];
+  items.push({ part: cleanPart, qty: safeQty, state: 'none', photo: null });
+
+  let newStatus = order.status;
+  if (order.status === 'ceka_delove' || order.status === 'spremno') {
+    newStatus = 'u_obradi';
+  }
+
+  await pool.query('UPDATE orders SET items = $1, status = $2 WHERE id = $3', [JSON.stringify(items), newStatus, req.params.id]);
+  await logEvent(req.params.id, 'item_added', req.user.username, cleanPart);
+  if (newStatus !== order.status) {
+    await logEvent(req.params.id, 'returned_to_progress', req.user.username, `"${cleanPart}" was added`);
   }
 
   broadcastUpdate();
