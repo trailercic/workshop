@@ -216,10 +216,68 @@ app.post('/api/orders/:id/approve-estimate', requireAuth, requireRole('estimator
   if (rows[0].estimate_approved_at) return res.status(400).json({ error: 'This estimate was already approved.' });
 
   await pool.query(
-    'UPDATE orders SET estimate_approved_by = $1, estimate_approved_at = $2 WHERE id = $3',
+    'UPDATE orders SET estimate_approved_by = $1, estimate_approved_at = $2, estimate_returned_at = NULL WHERE id = $3',
     [req.user.username, Date.now(), req.params.id]
   );
   await logEvent(req.params.id, 'estimate_approved', req.user.username);
+
+  broadcastUpdate();
+  res.json({ ok: true });
+});
+
+// Lets the estimator skip the warehouse review gate entirely and put a
+// ticket straight into New — handy for a ticket that was just returned
+// and reworked, so it doesn't need a second warehouse look.
+app.post('/api/orders/:id/estimate-to-new', requireAuth, requireRole('estimator', 'admin'), async (req, res) => {
+  const { rows } = await pool.query('SELECT id, is_estimate, estimate_approved_at FROM orders WHERE id = $1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
+  if (!rows[0].is_estimate) return res.status(400).json({ error: 'This order is not an estimate.' });
+  if (rows[0].estimate_approved_at) return res.status(400).json({ error: 'This estimate was already approved.' });
+
+  const now = Date.now();
+  await pool.query(
+    `UPDATE orders SET estimate_approved_by = $1, estimate_approved_at = $2,
+     warehouse_confirmed_by = $1, warehouse_confirmed_at = $2, estimate_returned_at = NULL
+     WHERE id = $3`,
+    [req.user.username, now, req.params.id]
+  );
+  await logEvent(req.params.id, 'estimate_sent_to_new', req.user.username);
+
+  broadcastUpdate();
+  res.json({ ok: true });
+});
+
+// Warehouse review gate: after the estimator approves, the ticket sits in
+// the "Estimates" board column until warehouse either confirms it (moving
+// it into the normal New/In Progress flow) or bounces it back to the
+// estimator for more work.
+app.post('/api/orders/:id/confirm-estimate', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
+  const { rows } = await pool.query('SELECT id, is_estimate, estimate_approved_at, warehouse_confirmed_at FROM orders WHERE id = $1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
+  if (!rows[0].is_estimate || !rows[0].estimate_approved_at) return res.status(400).json({ error: 'This ticket is not waiting for warehouse review.' });
+  if (rows[0].warehouse_confirmed_at) return res.status(400).json({ error: 'This ticket was already accepted.' });
+
+  await pool.query(
+    'UPDATE orders SET warehouse_confirmed_by = $1, warehouse_confirmed_at = $2 WHERE id = $3',
+    [req.user.username, Date.now(), req.params.id]
+  );
+  await logEvent(req.params.id, 'warehouse_confirmed_estimate', req.user.username);
+
+  broadcastUpdate();
+  res.json({ ok: true });
+});
+
+app.post('/api/orders/:id/return-estimate', requireAuth, requireRole('magacioner', 'admin'), async (req, res) => {
+  const { rows } = await pool.query('SELECT id, is_estimate, estimate_approved_at, warehouse_confirmed_at FROM orders WHERE id = $1', [req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Order not found.' });
+  if (!rows[0].is_estimate || !rows[0].estimate_approved_at) return res.status(400).json({ error: 'This ticket is not waiting for warehouse review.' });
+  if (rows[0].warehouse_confirmed_at) return res.status(400).json({ error: 'This ticket was already accepted and can no longer be sent back.' });
+
+  await pool.query(
+    'UPDATE orders SET estimate_approved_by = NULL, estimate_approved_at = NULL, estimate_returned_at = $1 WHERE id = $2',
+    [Date.now(), req.params.id]
+  );
+  await logEvent(req.params.id, 'returned_to_estimator', req.user.username);
 
   broadcastUpdate();
   res.json({ ok: true });
