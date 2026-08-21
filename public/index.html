@@ -166,6 +166,7 @@
   .col-head{ padding: 12px 16px; border-bottom: 2px solid var(--line); display:flex; align-items:center; justify-content:space-between; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1.5px; font-size:14px; }
   .col-head .count{ font-family: var(--font-mono); font-size:12px; background: var(--bg); padding: 2px 8px; border-radius: 10px; color: var(--paper-dim); }
   .col[data-status="novo"] .col-head{ color: var(--amber); }
+  .col[data-status="estimates"] .col-head{ color: var(--yellow); }
   .col[data-status="u_obradi"] .col-head{ color: var(--steel); }
   .col[data-status="ceka_delove"] .col-head{ color: var(--amber-dim); }
   .col[data-status="spremno"] .col-head{ color: var(--green); }
@@ -270,6 +271,12 @@
   .add-part-row .est-add-qty{ width:60px; background: var(--bg); border:1px solid var(--line); color: var(--paper); font-family: var(--font-body); font-size:13px; padding:8px 10px; border-radius:2px; }
   .add-part-row .est-add-btn{ font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:11px; padding:8px 14px; border-radius:2px; cursor:pointer; background: var(--steel); border:1px solid var(--steel); color:#fff; white-space:nowrap; }
   .add-part-row .est-add-btn:hover{ background: #5c7f9c; }
+  .returned-banner{ background: rgba(193,68,14,0.15); border:1px solid var(--red); color: var(--red); font-family: var(--font-display); text-transform:uppercase; letter-spacing:0.5px; font-size:12px; font-weight:600; padding:9px 12px; margin-bottom:12px; border-radius:2px; }
+  .history-item.returned-estimate{ border-color: var(--red); }
+  .est-actions{ display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
+  .est-actions .submit-btn{ margin-top:0; flex:1; min-width:180px; }
+  .est-to-new{ flex:1; min-width:160px; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:13px; font-weight:600; padding:13px; border-radius:2px; cursor:pointer; background: transparent; border:1px solid var(--steel); color: var(--steel); }
+  .est-to-new:hover{ background: var(--steel); color:#fff; }
 
   @media (max-width: 800px){
     .board{ grid-template-columns: 1fr; }
@@ -819,10 +826,21 @@
 
   const COLUMN_ACTIONS = {
     novo: [ { label: 'Start', status: 'u_obradi' } ],
+    estimates: [ { label: 'Accept', endpoint: 'confirm-estimate' }, { label: 'Send Back to Estimator', endpoint: 'return-estimate', danger: true } ],
     u_obradi: [ { label: 'Waiting for Parts', status: 'ceka_delove' }, { label: 'Ready', status: 'spremno' } ],
     ceka_delove: [ { label: 'Resume', status: 'u_obradi' }, { label: 'Ready', status: 'spremno' } ],
     spremno: [ { label: 'Back to In Progress', status: 'u_obradi' } ],
   };
+
+  async function callOrderEndpoint(id, endpoint){
+    try{
+      await api('/api/orders/' + id + '/' + endpoint, { method: 'POST' });
+      await refreshOrders();
+    } catch(e){
+      alert(e.message);
+      await refreshOrders();
+    }
+  }
 
   async function refreshOrders(){
     try{
@@ -833,9 +851,18 @@
     }
   }
 
+  // A ticket flagged as an estimate that the estimator has approved sits
+  // in a warehouse review gate before it behaves like a normal order.
+  function getBoardStage(o){
+    if(o.is_estimate && o.estimate_approved_at && !o.warehouse_confirmed_at) return 'estimates';
+    return o.status;
+  }
+
   const BOARD_COLUMNS = [
-    { key: 'novo-SOHO', label: 'New · SOHO', status: 'novo', filter: (o) => o.status === 'novo' && o.location === 'SOHO' },
-    { key: 'novo-MEPA', label: 'New · MEPA', status: 'novo', filter: (o) => o.status === 'novo' && o.location === 'MEPA' },
+    { key: 'estimates-SOHO', label: 'Estimates · SOHO', status: 'estimates', filter: (o) => getBoardStage(o) === 'estimates' && o.location === 'SOHO' },
+    { key: 'estimates-MEPA', label: 'Estimates · MEPA', status: 'estimates', filter: (o) => getBoardStage(o) === 'estimates' && o.location === 'MEPA' },
+    { key: 'novo-SOHO', label: 'New · SOHO', status: 'novo', filter: (o) => getBoardStage(o) === 'novo' && o.location === 'SOHO' },
+    { key: 'novo-MEPA', label: 'New · MEPA', status: 'novo', filter: (o) => getBoardStage(o) === 'novo' && o.location === 'MEPA' },
     { key: 'u_obradi-SOHO', label: 'In Progress · SOHO', status: 'u_obradi', filter: (o) => o.status === 'u_obradi' && o.location === 'SOHO' },
     { key: 'u_obradi-MEPA', label: 'In Progress · MEPA', status: 'u_obradi', filter: (o) => o.status === 'u_obradi' && o.location === 'MEPA' },
     { key: 'ceka_delove-SOHO', label: 'Waiting for Parts · SOHO', status: 'ceka_delove', filter: (o) => o.status === 'ceka_delove' && o.location === 'SOHO' },
@@ -844,13 +871,19 @@
     { key: 'spremno-MEPA', label: 'Ready · MEPA', status: 'spremno', filter: (o) => o.status === 'spremno' && o.location === 'MEPA' },
   ];
 
-  const EMPTY_TEXT = { novo: 'No new orders', u_obradi: 'Nothing in progress', ceka_delove: 'Nothing waiting', spremno: 'Nothing ready' };
+  const EMPTY_TEXT = { novo: 'No new orders', estimates: 'Nothing waiting for review', u_obradi: 'Nothing in progress', ceka_delove: 'Nothing waiting', spremno: 'Nothing ready' };
 
   let activeLocation = 'SOHO';
 
   function getActiveColumns(){
     const loc = SCREEN_LOCATION || activeLocation;
-    return BOARD_COLUMNS.filter(col => col.key.endsWith('-' + loc));
+    let cols = BOARD_COLUMNS.filter(col => col.key.endsWith('-' + loc));
+    if(SCREEN_MODE){
+      // The Estimates review gate is a warehouse-only workflow step —
+      // never shown on the public/unauthenticated screen displays.
+      cols = cols.filter(col => col.status !== 'estimates');
+    }
+    return cols;
   }
 
   function setupLocationSwitch(){
@@ -895,16 +928,17 @@
   window.addEventListener('resize', sizeColumns);
 
   function buildCard(o, { allowActions = false } = {}){
-    const status = o.status;
+    const status = getBoardStage(o);
     const card = document.createElement('div');
     card.className = 'card' + (o.priority === 'hitno' ? ' urgent' : '');
     const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
 
     if(status === 'novo'){
-      // Minimal view: only the service order and order time are shown until someone claims it.
+      // Minimal view: service order, requester, and order time — parts stay
+      // hidden until someone claims it.
       card.innerHTML = `
         <div class="part">${label}</div>
-        <div class="meta"><span>${clockTime(Number(o.created_at))}</span><span>${timeAgo(Number(o.created_at))}</span></div>
+        <div class="meta"><span>${escapeHtml(o.requester)}</span><span>${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span></div>
         <div class="actions"></div>
       `;
     } else {
@@ -996,12 +1030,20 @@
       card.appendChild(lockBadge);
     }
 
-    if((allowActions || status === 'novo') && !SCREEN_MODE){
+    if((allowActions || status === 'novo' || status === 'estimates') && !SCREEN_MODE){
       const actions = card.querySelector('.actions');
       (COLUMN_ACTIONS[status] || []).forEach(action => {
         const btn = document.createElement('button');
         btn.textContent = action.label;
-        btn.addEventListener('click', async (e) => { e.stopPropagation(); await advanceStatus(o.id, action.status, o.status); });
+        if(action.danger) btn.className = 'danger';
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if(action.endpoint){
+            await callOrderEndpoint(o.id, action.endpoint);
+          } else {
+            await advanceStatus(o.id, action.status, o.status);
+          }
+        });
         actions.appendChild(btn);
       });
       if(status === 'spremno'){
@@ -1298,8 +1340,9 @@
         }).join('');
 
         const div = document.createElement('div');
-        div.className = 'history-item';
+        div.className = 'history-item' + (o.estimate_returned_at ? ' returned-estimate' : '');
         div.innerHTML = `
+          ${o.estimate_returned_at ? `<div class="returned-banner">↩ Sent back by warehouse — needs rework (${dateTime(Number(o.estimate_returned_at))})</div>` : ''}
           <div class="h-head">
             <span class="h-title">${label}</span>
             <span class="h-meta">${escapeHtml(o.location)} · requested by ${escapeHtml(o.requester)} · ${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span>
@@ -1311,7 +1354,10 @@
             <button type="button" class="est-add-btn">+ Add</button>
           </div>
           ${o.note ? `<div class="note" style="margin-top:8px;">${escapeHtml(o.note)}</div>` : ''}
-          <button type="button" class="submit-btn est-approve" data-id="${o.id}" style="margin-top:10px;">Approve — Send to Warehouse</button>
+          <div class="est-actions">
+            <button type="button" class="submit-btn est-approve" data-id="${o.id}">Approve — Send to Warehouse</button>
+            <button type="button" class="est-to-new" data-id="${o.id}">Send Straight to New</button>
+          </div>
         `;
 
         div.querySelectorAll('.mt-remove-item').forEach(btn => {
@@ -1350,6 +1396,19 @@
             alert(err.message);
             btn.disabled = false;
             btn.textContent = 'Approve — Send to Warehouse';
+          }
+        });
+        div.querySelector('.est-to-new').addEventListener('click', async (e) => {
+          const btn = e.target;
+          btn.disabled = true;
+          btn.textContent = 'Sending...';
+          try{
+            await api('/api/orders/' + o.id + '/estimate-to-new', { method: 'POST' });
+            refreshEstimates();
+          } catch(err){
+            alert(err.message);
+            btn.disabled = false;
+            btn.textContent = 'Send Straight to New';
           }
         });
         list.appendChild(div);
@@ -1438,6 +1497,8 @@
     cancelled: 'Withdrawn by requester', item_removed: 'Part removed', item_added: 'Part added',
     returned_to_progress: 'Returned to In Progress', item_marked: 'Part marked', note_updated: 'Note updated',
     sms_alert_sent: 'SMS alert sent to warehouse', estimate_approved: 'Estimate approved',
+    warehouse_confirmed_estimate: 'Accepted by warehouse', returned_to_estimator: 'Sent back to estimator',
+    estimate_sent_to_new: 'Sent straight to New by estimator',
   };
 
   let historyData = [];
