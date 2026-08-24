@@ -256,6 +256,11 @@
   .timeline li .t-action{ color: var(--paper); text-transform:uppercase; letter-spacing:0.5px; min-width: 90px; }
   .timeline li .t-actor{ color: var(--amber); }
   .empty-note.history{ padding: 30px 8px; }
+  .history-pager{ display:flex; align-items:center; justify-content:center; gap:16px; margin-top:16px; padding-top:16px; border-top:1px solid var(--line); }
+  .history-pager button{ font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:12px; padding:8px 16px; border-radius:2px; cursor:pointer; background: var(--panel-raised); border:1px solid var(--line); color: var(--paper); }
+  .history-pager button:hover:not(:disabled){ border-color: var(--amber); color: var(--amber); }
+  .history-pager button:disabled{ opacity:0.35; cursor:default; }
+  .history-pager-label{ font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); }
   .mt-items{ margin: 8px 0; }
   .mt-item{ display:flex; justify-content:space-between; align-items:center; font-size:13px; color: var(--paper-dim); padding:6px 0; border-bottom:1px solid var(--line); }
   .mt-item-removed{ opacity:0.6; }
@@ -1502,11 +1507,14 @@
   };
 
   let historyData = [];
+  const HISTORY_PAGE_SIZE = 15;
+  let historyPage = 1;
 
   async function refreshHistory(){
     try{
       historyData = await api('/api/history');
       $('history-search').value = '';
+      historyPage = 1;
       renderHistoryList(historyData);
     } catch(e){
       if(e.status === 401){ logout(); }
@@ -1522,6 +1530,7 @@
   }
 
   $('history-search').addEventListener('input', () => {
+    historyPage = 1;
     const q = $('history-search').value.trim().toLowerCase();
     const filtered = q ? historyData.filter(o => historySearchText(o).includes(q)) : historyData;
     renderHistoryList(filtered, q);
@@ -1539,7 +1548,12 @@
       return;
     }
 
-    orders.forEach(o => {
+    const totalPages = Math.max(1, Math.ceil(orders.length / HISTORY_PAGE_SIZE));
+    if(historyPage > totalPages) historyPage = totalPages;
+    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
+    const pageItems = orders.slice(start, start + HISTORY_PAGE_SIZE);
+
+    pageItems.forEach(o => {
       const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
       const items = Array.isArray(o.items) ? o.items : [];
       const itemsText = items.map(it => `<span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>`).join(', ');
@@ -1567,6 +1581,32 @@
       `;
       list.appendChild(div);
     });
+
+    if(totalPages > 1){
+      const pager = document.createElement('div');
+      pager.className = 'history-pager';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.textContent = '‹ Prev';
+      prevBtn.disabled = historyPage <= 1;
+      prevBtn.addEventListener('click', () => { historyPage--; renderHistoryList(orders, activeQuery); });
+
+      const pageLabel = document.createElement('span');
+      pageLabel.className = 'history-pager-label';
+      pageLabel.textContent = `Page ${historyPage} of ${totalPages} (${orders.length} total)`;
+
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.textContent = 'Next ›';
+      nextBtn.disabled = historyPage >= totalPages;
+      nextBtn.addEventListener('click', () => { historyPage++; renderHistoryList(orders, activeQuery); });
+
+      pager.appendChild(prevBtn);
+      pager.appendChild(pageLabel);
+      pager.appendChild(nextBtn);
+      list.appendChild(pager);
+    }
   }
 
   // ---------- admin: user management ----------
