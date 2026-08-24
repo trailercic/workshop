@@ -282,6 +282,8 @@
   .est-actions .submit-btn{ margin-top:0; flex:1; min-width:180px; }
   .est-to-new{ flex:1; min-width:160px; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:13px; font-weight:600; padding:13px; border-radius:2px; cursor:pointer; background: transparent; border:1px solid var(--steel); color: var(--steel); }
   .est-to-new:hover{ background: var(--steel); color:#fff; }
+  .est-done{ flex:0 0 auto; font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:13px; font-weight:600; padding:13px 20px; border-radius:2px; cursor:pointer; background: transparent; border:1px solid var(--line); color: var(--paper-dim); }
+  .est-done:hover{ border-color: var(--red); color: var(--red); }
 
   @media (max-width: 800px){
     .board{ grid-template-columns: 1fr; }
@@ -1362,6 +1364,7 @@
           <div class="est-actions">
             <button type="button" class="submit-btn est-approve" data-id="${o.id}">Approve — Send to Warehouse</button>
             <button type="button" class="est-to-new" data-id="${o.id}">Send Straight to New</button>
+            <button type="button" class="est-done" data-id="${o.id}">Done</button>
           </div>
         `;
 
@@ -1415,6 +1418,13 @@
             btn.disabled = false;
             btn.textContent = 'Send Straight to New';
           }
+        });
+        div.querySelector('.est-done').addEventListener('click', async () => {
+          if(!confirm('Mark this estimate as done? It will disappear from this list and the warehouse, staying only in History.')) return;
+          try{
+            await api('/api/orders/' + o.id + '/cancel', { method: 'POST' });
+            refreshEstimates();
+          } catch(err){ alert(err.message); }
         });
         list.appendChild(div);
       });
@@ -1499,7 +1509,7 @@
   const ACTION_LABEL = {
     created: 'Created', claimed: 'Claimed', waiting: 'Waiting for parts', resumed: 'Resumed',
     ready: 'Marked ready', reopened: 'Sent back to progress', issued: 'Issued',
-    cancelled: 'Withdrawn by requester', item_removed: 'Part removed', item_added: 'Part added',
+    cancelled: 'Withdrawn', item_removed: 'Part removed', item_added: 'Part added',
     returned_to_progress: 'Returned to In Progress', item_marked: 'Part marked', note_updated: 'Note updated',
     sms_alert_sent: 'SMS alert sent to warehouse', estimate_approved: 'Estimate approved',
     warehouse_confirmed_estimate: 'Accepted by warehouse', returned_to_estimator: 'Sent back to estimator',
