@@ -650,7 +650,7 @@
   // Continuous, credits-style scroll: each column slowly and steadily
   // scrolls down, looping back to the top once it reaches the bottom.
   let autoScrollRAF = null;
-  const AUTO_SCROLL_SPEED = 0.5; // pixels per frame (~30px/sec at 60fps)
+  const AUTO_SCROLL_SPEED = 1; // pixels per frame (~60px/sec at 60fps)
 
   function autoScrollTick(){
     document.querySelectorAll('.col-body').forEach(el => {
