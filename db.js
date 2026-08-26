@@ -46,6 +46,9 @@ async function initDb() {
   await pool.query(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS can_manage_own_tickets BOOLEAN NOT NULL DEFAULT false;
   `);
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS can_track_own_orders BOOLEAN NOT NULL DEFAULT false;
+  `);
 
   // Migration: allow the new 'estimator' role for installs whose CHECK
   // constraint predates this value.
