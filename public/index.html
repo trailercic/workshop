@@ -253,6 +253,11 @@
   .item-line.state-yellow .item-state-text{ color: var(--yellow); }
   .item-line.state-red .item-state-text{ color: var(--red); }
   .item-line.state-removed .item-state-text{ color: var(--red); }
+  .order-status-badge{ font-family: var(--font-mono); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; padding:3px 9px; border-radius:10px; border:1px solid; white-space:nowrap; }
+  .order-status-amber{ color: var(--amber); border-color: var(--amber-dim); background: rgba(242,169,0,0.1); }
+  .order-status-steel{ color: var(--steel); border-color: var(--steel); background: rgba(77,107,130,0.15); }
+  .order-status-green{ color: var(--green); border-color: var(--green); background: rgba(92,138,92,0.15); }
+  .order-status-red{ color: var(--red); border-color: var(--red); background: rgba(193,68,14,0.1); }
   .history-item .h-head{ display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
   .history-item .h-title{ font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:16px; }
   .history-item .h-meta{ font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); }
@@ -388,12 +393,12 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <div id="track-own-wrap" style="display:none; margin-top:24px;">
-      <div class="panel">
-        <h2>Your Orders</h2>
-        <div id="my-order-status-list"></div>
-      </div>
+  <div id="view-trackown" class="view">
+    <div class="panel">
+      <h2>Your Orders</h2>
+      <div id="my-order-status-list"></div>
     </div>
   </div>
 
@@ -511,14 +516,14 @@
 
   const ROLE_LABEL = { narucilac: 'Requester', magacioner: 'Warehouse', admin: 'Admin', estimator: 'Estimator' };
   const ROLE_VIEWS = { narucilac: ['order'], magacioner: ['display'], estimator: ['estimates'], admin: ['order','display','admin','history','estimates'] };
-  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users', history: 'History', mytickets: 'Manage Tickets', estimates: 'Estimates' };
+  const VIEW_LABEL = { order: 'Order Parts', display: 'Display', admin: 'Users', history: 'History', mytickets: 'Manage Tickets', estimates: 'Estimates', trackown: 'Track Orders' };
 
   function getUserViews(){
     const base = ROLE_VIEWS[currentUser.role] || [];
-    if(currentUser.role === 'narucilac' && currentUser.canManageOwnTickets){
-      return [...base, 'mytickets'];
-    }
-    return base;
+    const extra = [];
+    if(currentUser.role === 'narucilac' && currentUser.canManageOwnTickets) extra.push('mytickets');
+    if(currentUser.role === 'narucilac' && currentUser.canTrackOwnOrders) extra.push('trackown');
+    return [...base, ...extra];
   }
 
   const $ = (id) => document.getElementById(id);
@@ -612,7 +617,7 @@
   }
 
   function setView(view){
-    ['login','order','display','admin','history','mytickets','estimates'].forEach(v => $('view-' + v).classList.toggle('active', v === view));
+    ['login','order','display','admin','history','mytickets','estimates','trackown'].forEach(v => $('view-' + v).classList.toggle('active', v === view));
     if(currentUser){
       document.querySelectorAll('#topbar-right .switch button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     }
@@ -630,15 +635,11 @@
       refreshMyTickets();
     } else if(view === 'estimates'){
       refreshEstimates();
+    } else if(view === 'trackown'){
+      refreshMyOrderStatus();
     } else if(view === 'order'){
       setNextNum();
       if($('items-list').children.length === 0) resetItemRows();
-      if(currentUser && currentUser.canTrackOwnOrders){
-        $('track-own-wrap').style.display = '';
-        refreshMyOrderStatus();
-      } else {
-        $('track-own-wrap').style.display = 'none';
-      }
     }
   }
 
@@ -1476,6 +1477,7 @@
         const items = Array.isArray(o.items) ? o.items : [];
         const isDone = !!(o.issued_at || o.cancelled_at);
         const statusText = o.issued_at ? 'Issued' : o.cancelled_at ? 'Cancelled' : (TRACK_STATUS_LABEL[o.status] || o.status);
+        const statusClass = o.issued_at ? 'green' : o.cancelled_at ? 'red' : (o.status === 'spremno' ? 'green' : o.status === 'novo' ? 'amber' : 'steel');
         // If the whole order is already issued, every remaining part counts as picked/fulfilled.
         const itemsHtml = items.map(it => {
           const state = it.state === 'removed' ? 'removed' : (isDone && o.issued_at ? 'green' : (it.state || 'none'));
@@ -1492,8 +1494,9 @@
         div.innerHTML = `
           <div class="h-head">
             <span class="h-title">${label}</span>
-            <span class="h-meta">${statusText} · ${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span>
+            <span class="order-status-badge order-status-${statusClass}">${statusText}</span>
           </div>
+          <div class="h-meta" style="margin-bottom:8px;">${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</div>
           <div class="items-preview">${itemsHtml}</div>
         `;
         list.appendChild(div);
@@ -1859,7 +1862,7 @@
       document.body.classList.add('screen-mode');
       const right = $('topbar-right');
       right.innerHTML = '<div class="user-chip"><span class="role-badge screen">Live Display' + (SCREEN_LOCATION ? ' · ' + SCREEN_LOCATION : ' · Read Only') + '</span></div>';
-      ['login','order','display','admin','history','mytickets','estimates'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
+      ['login','order','display','admin','history','mytickets','estimates','trackown'].forEach(v => $('view-' + v).classList.toggle('active', v === 'display'));
       setupLocationSwitch();
       buildBoardSkeleton();
       await refreshOrders();
