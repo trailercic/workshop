@@ -169,7 +169,11 @@ app.post('/api/login', async (req, res) => {
   loginAttempts.delete(ip);
   const token = signToken(user);
   res.cookie('token', token, COOKIE_OPTS);
-  res.json({ username: user.username, role: user.role, canManageOwnTickets: !!user.can_manage_own_tickets });
+  res.json({
+    username: user.username, role: user.role,
+    canManageOwnTickets: !!user.can_manage_own_tickets,
+    canTrackOwnOrders: !!user.can_track_own_orders,
+  });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -178,12 +182,29 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT can_manage_own_tickets FROM users WHERE username = $1', [req.user.username]);
+  const { rows } = await pool.query('SELECT can_manage_own_tickets, can_track_own_orders FROM users WHERE username = $1', [req.user.username]);
   res.json({
     username: req.user.username,
     role: req.user.role,
     canManageOwnTickets: !!(rows[0] && rows[0].can_manage_own_tickets),
+    canTrackOwnOrders: !!(rows[0] && rows[0].can_track_own_orders),
   });
+});
+
+// Read-only: a requester's own order history/status, for the optional
+// "track own orders" permission. No editing capability here at all.
+app.get('/api/my-order-status', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    const perm = await pool.query('SELECT can_track_own_orders FROM users WHERE username = $1', [req.user.username]);
+    if (!perm.rows.length || !perm.rows[0].can_track_own_orders) {
+      return res.status(403).json({ error: 'You do not have permission to track orders.' });
+    }
+  }
+  const { rows } = await pool.query(
+    'SELECT * FROM orders WHERE requester = $1 ORDER BY created_at DESC LIMIT 100',
+    [req.user.username]
+  );
+  res.json(rows);
 });
 
 // ---------- orders routes ----------
@@ -659,7 +680,7 @@ app.get('/api/history', requireAuth, requireRole('admin'), async (req, res) => {
 
 // ---------- user management (admin only) ----------
 app.get('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
-  const { rows } = await pool.query('SELECT username, role, location, can_manage_own_tickets, pass_hash, created_at FROM users ORDER BY created_at ASC');
+  const { rows } = await pool.query('SELECT username, role, location, can_manage_own_tickets, can_track_own_orders, pass_hash, created_at FROM users ORDER BY created_at ASC');
   const out = await Promise.all(rows.map(async (u) => {
     let warnDefault = false;
     if (u.username === 'admin') {
@@ -668,6 +689,7 @@ app.get('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
     return {
       username: u.username, role: u.role, location: u.location,
       canManageOwnTickets: !!u.can_manage_own_tickets,
+      canTrackOwnOrders: !!u.can_track_own_orders,
       created_at: u.created_at, warn_default: warnDefault,
     };
   }));
@@ -675,17 +697,19 @@ app.get('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
 });
 
 app.post('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
-  const { username, password, role, location, canManageOwnTickets } = req.body || {};
+  const { username, password, role, location, canManageOwnTickets, canTrackOwnOrders } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Fill in username and password.' });
   if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   if (!['narucilac', 'magacioner', 'admin', 'estimator'].includes(role)) return res.status(400).json({ error: 'Invalid role.' });
 
   let safeLocation = null;
   let safeCanManage = false;
+  let safeCanTrack = false;
   if (role === 'narucilac') {
     if (!['SOHO', 'MEPA'].includes(location)) return res.status(400).json({ error: 'Invalid location.' });
     safeLocation = location;
     safeCanManage = !!canManageOwnTickets;
+    safeCanTrack = !!canTrackOwnOrders;
   }
 
   const existing = await pool.query('SELECT username FROM users WHERE lower(username) = lower($1)', [username]);
@@ -693,8 +717,8 @@ app.post('/api/users', requireAuth, requireRole('admin'), async (req, res) => {
 
   const hash = await bcrypt.hash(password, 10);
   await pool.query(
-    'INSERT INTO users (username, pass_hash, role, location, can_manage_own_tickets) VALUES ($1,$2,$3,$4,$5)',
-    [username.trim(), hash, role, safeLocation, safeCanManage]
+    'INSERT INTO users (username, pass_hash, role, location, can_manage_own_tickets, can_track_own_orders) VALUES ($1,$2,$3,$4,$5,$6)',
+    [username.trim(), hash, role, safeLocation, safeCanManage, safeCanTrack]
   );
   res.json({ ok: true });
 });
@@ -708,12 +732,17 @@ app.patch('/api/users/:username', requireAuth, requireRole('admin'), async (req,
 });
 
 app.patch('/api/users/:username/permissions', requireAuth, requireRole('admin'), async (req, res) => {
-  const { canManageOwnTickets } = req.body || {};
+  const { canManageOwnTickets, canTrackOwnOrders } = req.body || {};
   const { rows } = await pool.query('SELECT role FROM users WHERE username = $1', [req.params.username]);
   if (!rows.length) return res.status(404).json({ error: 'User does not exist.' });
   if (rows[0].role !== 'narucilac') return res.status(400).json({ error: 'This permission only applies to Requester accounts.' });
 
-  await pool.query('UPDATE users SET can_manage_own_tickets = $1 WHERE username = $2', [!!canManageOwnTickets, req.params.username]);
+  if (canManageOwnTickets !== undefined) {
+    await pool.query('UPDATE users SET can_manage_own_tickets = $1 WHERE username = $2', [!!canManageOwnTickets, req.params.username]);
+  }
+  if (canTrackOwnOrders !== undefined) {
+    await pool.query('UPDATE users SET can_track_own_orders = $1 WHERE username = $2', [!!canTrackOwnOrders, req.params.username]);
+  }
   res.json({ ok: true });
 });
 
