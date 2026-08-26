@@ -381,6 +381,13 @@
         </div>
       </div>
     </div>
+
+    <div class="ticket-wrap" id="track-own-wrap" style="display:none; margin-top:24px;">
+      <div class="ticket-form">
+        <h2 class="ticket-title" style="font-size:18px; margin-bottom:16px;">Your Orders</h2>
+        <div id="my-order-status-list"></div>
+      </div>
+    </div>
   </div>
 
   <div id="view-display" class="view">
@@ -401,7 +408,7 @@
         <h2>Users</h2>
         <div class="admin-note hidden" id="default-admin-note">The "admin" account is still using the default password. We recommend changing it right away.</div>
         <table class="users">
-          <thead><tr><th>Username</th><th>Role</th><th>Location</th><th>Manage Tickets</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Username</th><th>Role</th><th>Location</th><th>Manage Tickets</th><th>Track Orders</th><th>Actions</th></tr></thead>
           <tbody id="users-tbody"></tbody>
         </table>
       </div>
@@ -433,6 +440,9 @@
         </div>
         <div class="field checkbox-field" id="manage-field">
           <label class="checkbox-label"><input type="checkbox" id="a-can-manage"> Super Requester — can withdraw/edit ANY ticket</label>
+        </div>
+        <div class="field checkbox-field" id="track-field">
+          <label class="checkbox-label"><input type="checkbox" id="a-can-track"> Can track own orders (view only, no editing)</label>
         </div>
         <button class="submit-btn" id="add-user-btn">Add User</button>
         <div class="login-error" id="admin-error"></div>
@@ -616,6 +626,12 @@
     } else if(view === 'order'){
       setNextNum();
       if($('items-list').children.length === 0) resetItemRows();
+      if(currentUser && currentUser.canTrackOwnOrders){
+        $('track-own-wrap').style.display = '';
+        refreshMyOrderStatus();
+      } else {
+        $('track-own-wrap').style.display = 'none';
+      }
     }
   }
 
@@ -650,7 +666,7 @@
   // Continuous, credits-style scroll: each column slowly and steadily
   // scrolls down, looping back to the top once it reaches the bottom.
   let autoScrollRAF = null;
-  const AUTO_SCROLL_SPEED = 1; // pixels per frame (~60px/sec at 60fps)
+  const AUTO_SCROLL_SPEED = 0.7; // pixels per frame (~42px/sec at 60fps)
 
   function autoScrollTick(){
     document.querySelectorAll('.col-body').forEach(el => {
@@ -1433,6 +1449,45 @@
     }
   }
 
+  // ---------- requester: track own orders (view only) ----------
+  const TRACK_STATUS_LABEL = { novo: 'New', u_obradi: 'In Progress', ceka_delove: 'Waiting for Parts', spremno: 'Ready' };
+
+  async function refreshMyOrderStatus(){
+    const list = $('my-order-status-list');
+    try{
+      const orders = await api('/api/my-order-status');
+      list.innerHTML = '';
+
+      if(orders.length === 0){
+        list.innerHTML = '<div class="empty-note history">No orders yet.</div>';
+        return;
+      }
+
+      orders.forEach(o => {
+        const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
+        const items = Array.isArray(o.items) ? o.items : [];
+        const statusText = o.issued_at ? 'Issued' : o.cancelled_at ? 'Cancelled' : (TRACK_STATUS_LABEL[o.status] || o.status);
+        const itemsText = items.map(it => {
+          const removedTag = it.state === 'removed' ? ' <span class="item-removed-tag">REMOVED</span>' : '';
+          return `<span${it.state === 'removed' ? ' style="text-decoration:line-through;opacity:0.6;"' : ''}>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>${removedTag}`;
+        }).join(', ');
+
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.innerHTML = `
+          <div class="h-head">
+            <span class="h-title">${label}</span>
+            <span class="h-meta">${statusText} · ${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span>
+          </div>
+          <div class="h-items">${itemsText}</div>
+        `;
+        list.appendChild(div);
+      });
+    } catch(e){
+      list.innerHTML = '<div class="empty-note history">Could not load your orders.</div>';
+    }
+  }
+
   // ---------- requester: my tickets ----------
   const MY_STATUS_LABEL = { novo: 'New', u_obradi: 'In Progress', ceka_delove: 'Waiting for Parts', spremno: 'Ready' };
 
@@ -1650,6 +1705,9 @@
         <td>${u.role === 'narucilac'
           ? `<div class="manage-toggle"><input type="checkbox" data-action="manage-toggle" ${u.canManageOwnTickets ? 'checked' : ''}></div>`
           : '<span style="color:var(--paper-dim);opacity:0.5;">—</span>'}</td>
+        <td>${u.role === 'narucilac'
+          ? `<div class="manage-toggle"><input type="checkbox" data-action="track-toggle" ${u.canTrackOwnOrders ? 'checked' : ''}></div>`
+          : '<span style="color:var(--paper-dim);opacity:0.5;">—</span>'}</td>
         <td>
           <div class="row-actions">
             <button data-action="pw">Password</button>
@@ -1673,6 +1731,20 @@
           } catch(e){
             alert(e.message);
             manageToggle.checked = !manageToggle.checked;
+          }
+        });
+      }
+      const trackToggle = tr.querySelector('[data-action="track-toggle"]');
+      if(trackToggle){
+        trackToggle.addEventListener('change', async () => {
+          try{
+            await api('/api/users/' + encodeURIComponent(u.username) + '/permissions', {
+              method: 'PATCH',
+              body: JSON.stringify({ canTrackOwnOrders: trackToggle.checked }),
+            });
+          } catch(e){
+            alert(e.message);
+            trackToggle.checked = !trackToggle.checked;
           }
         });
       }
@@ -1715,6 +1787,7 @@
     const isRequester = $('a-role').value === 'narucilac';
     $('location-field').style.display = isRequester ? '' : 'none';
     $('manage-field').style.display = isRequester ? '' : 'none';
+    $('track-field').style.display = isRequester ? '' : 'none';
   }
   $('a-role').addEventListener('change', updateLocationFieldVisibility);
   updateLocationFieldVisibility();
@@ -1725,12 +1798,13 @@
     const role = $('a-role').value;
     const location = role === 'narucilac' ? $('a-location').value : null;
     const canManageOwnTickets = role === 'narucilac' ? $('a-can-manage').checked : false;
+    const canTrackOwnOrders = role === 'narucilac' ? $('a-can-track').checked : false;
     const errEl = $('admin-error');
     errEl.classList.remove('show');
 
     try{
-      await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password, role, location, canManageOwnTickets }) });
-      $('a-username').value = ''; $('a-password').value = ''; $('a-can-manage').checked = false;
+      await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password, role, location, canManageOwnTickets, canTrackOwnOrders }) });
+      $('a-username').value = ''; $('a-password').value = ''; $('a-can-manage').checked = false; $('a-can-track').checked = false;
       refreshUsers();
     } catch(e){
       errEl.textContent = e.message;
