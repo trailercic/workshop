@@ -246,6 +246,13 @@
   .manage-toggle input[type="checkbox"]{ width:16px; height:16px; accent-color: var(--amber); cursor:pointer; }
 
   .history-item{ border: 1px solid var(--line); border-left: 4px solid var(--green); background: var(--bg); padding: 14px 16px; margin-bottom: 12px; }
+  #my-order-status-list{ display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; align-items:start; }
+  #my-order-status-list .my-order-card{ margin-bottom:0; }
+  .item-state-text{ font-family: var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color: var(--paper-dim); }
+  .item-line.state-green .item-state-text{ color: var(--green); }
+  .item-line.state-yellow .item-state-text{ color: var(--yellow); }
+  .item-line.state-red .item-state-text{ color: var(--red); }
+  .item-line.state-removed .item-state-text{ color: var(--red); }
   .history-item .h-head{ display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
   .history-item .h-title{ font-family: var(--font-display); text-transform:uppercase; letter-spacing:1px; font-size:16px; }
   .history-item .h-meta{ font-family: var(--font-mono); font-size:11px; color: var(--paper-dim); }
@@ -382,9 +389,9 @@
       </div>
     </div>
 
-    <div class="ticket-wrap" id="track-own-wrap" style="display:none; margin-top:24px;">
-      <div class="ticket-form">
-        <h2 class="ticket-title" style="font-size:18px; margin-bottom:16px;">Your Orders</h2>
+    <div id="track-own-wrap" style="display:none; margin-top:24px;">
+      <div class="panel">
+        <h2>Your Orders</h2>
         <div id="my-order-status-list"></div>
       </div>
     </div>
@@ -1451,6 +1458,7 @@
 
   // ---------- requester: track own orders (view only) ----------
   const TRACK_STATUS_LABEL = { novo: 'New', u_obradi: 'In Progress', ceka_delove: 'Waiting for Parts', spremno: 'Ready' };
+  const ITEM_STATE_TEXT = { none: 'Pending', green: 'Picked', yellow: 'On Order', red: 'Issue', removed: 'Removed' };
 
   async function refreshMyOrderStatus(){
     const list = $('my-order-status-list');
@@ -1466,20 +1474,27 @@
       orders.forEach(o => {
         const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
         const items = Array.isArray(o.items) ? o.items : [];
+        const isDone = !!(o.issued_at || o.cancelled_at);
         const statusText = o.issued_at ? 'Issued' : o.cancelled_at ? 'Cancelled' : (TRACK_STATUS_LABEL[o.status] || o.status);
-        const itemsText = items.map(it => {
-          const removedTag = it.state === 'removed' ? ' <span class="item-removed-tag">REMOVED</span>' : '';
-          return `<span${it.state === 'removed' ? ' style="text-decoration:line-through;opacity:0.6;"' : ''}>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>${removedTag}`;
-        }).join(', ');
+        // If the whole order is already issued, every remaining part counts as picked/fulfilled.
+        const itemsHtml = items.map(it => {
+          const state = it.state === 'removed' ? 'removed' : (isDone && o.issued_at ? 'green' : (it.state || 'none'));
+          return `
+            <div class="item-line state-${state}">
+              <span><span class="dot"></span>${escapeHtml(it.part)} <span class="qty">×${it.qty}</span></span>
+              <span class="item-state-text">${ITEM_STATE_TEXT[state]}</span>
+            </div>
+          `;
+        }).join('');
 
         const div = document.createElement('div');
-        div.className = 'history-item';
+        div.className = 'history-item my-order-card';
         div.innerHTML = `
           <div class="h-head">
             <span class="h-title">${label}</span>
             <span class="h-meta">${statusText} · ${clockTime(Number(o.created_at))} · ${timeAgo(Number(o.created_at))}</span>
           </div>
-          <div class="h-items">${itemsText}</div>
+          <div class="items-preview">${itemsHtml}</div>
         `;
         list.appendChild(div);
       });
