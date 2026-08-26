@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -15,6 +16,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   console.error('ERROR: JWT_SECRET is not set in environment variables. Set it before running in production.');
 }
+
+// Compresses every response (HTML, CSS, JS, JSON) before sending it —
+// the single-file frontend goes from ~93KB to ~20KB over the wire.
+app.use(compression());
 
 app.use(express.json({ limit: '2mb' }));
 app.use((req, res, next) => {
