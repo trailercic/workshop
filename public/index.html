@@ -480,6 +480,9 @@
   <div id="view-mytickets" class="view">
     <div class="panel">
       <h2>Manage Tickets</h2>
+      <div class="field">
+        <input id="mytickets-search" type="text" placeholder="Search service order, requester, part name...">
+      </div>
       <div id="mytickets-list"></div>
     </div>
   </div>
@@ -1508,22 +1511,45 @@
 
   // ---------- requester: my tickets ----------
   const MY_STATUS_LABEL = { novo: 'New', u_obradi: 'In Progress', ceka_delove: 'Waiting for Parts', spremno: 'Ready' };
+  let myTicketsData = [];
 
   async function refreshMyTickets(){
-    const list = $('mytickets-list');
     try{
-      const myOrders = await api('/api/my-orders');
-      list.innerHTML = '';
+      myTicketsData = await api('/api/my-orders');
+      $('mytickets-search').value = '';
+      renderMyTicketsList(myTicketsData);
+    } catch(e){
+      if(e.status === 401){ logout(); }
+    }
+  }
 
-      if(myOrders.length === 0){
-        const empty = document.createElement('div');
-        empty.className = 'empty-note history';
-        empty.textContent = 'No tickets to manage yet.';
-        list.appendChild(empty);
-        return;
-      }
+  function myTicketsSearchText(o){
+    const items = Array.isArray(o.items) ? o.items : [];
+    return [
+      o.service_order || '', o.id, o.requester, o.location,
+      ...items.map(it => it.part),
+    ].join(' ').toLowerCase();
+  }
 
-      myOrders.forEach(o => {
+  $('mytickets-search').addEventListener('input', () => {
+    const q = $('mytickets-search').value.trim().toLowerCase();
+    const filtered = q ? myTicketsData.filter(o => myTicketsSearchText(o).includes(q)) : myTicketsData;
+    renderMyTicketsList(filtered, q);
+  });
+
+  function renderMyTicketsList(myOrders, activeQuery){
+    const list = $('mytickets-list');
+    list.innerHTML = '';
+
+    if(myOrders.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'empty-note history';
+      empty.textContent = activeQuery ? 'No matching tickets.' : 'No tickets to manage yet.';
+      list.appendChild(empty);
+      return;
+    }
+
+    myOrders.forEach(o => {
         const label = o.service_order ? escapeHtml(o.service_order) : ('#' + escapeHtml(o.id.slice(-6)));
         const items = Array.isArray(o.items) ? o.items : [];
         const isDone = !!(o.issued_at || o.cancelled_at);
@@ -1572,10 +1598,7 @@
         }
 
         list.appendChild(div);
-      });
-    } catch(e){
-      if(e.status === 401){ logout(); }
-    }
+    });
   }
 
   // ---------- admin: history ----------
