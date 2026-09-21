@@ -26,6 +26,11 @@ app.use((req, res, next) => {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
   next();
 });
+app.use('/api', (req, res, next) => {
+  // API responses must never be cached — always reflect the latest data.
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -737,7 +742,7 @@ app.patch('/api/users/:username', requireAuth, requireRole('admin'), async (req,
 });
 
 app.patch('/api/users/:username/permissions', requireAuth, requireRole('admin'), async (req, res) => {
-  const { canManageOwnTickets, canTrackOwnOrders } = req.body || {};
+  const { canManageOwnTickets, canTrackOwnOrders, location } = req.body || {};
   const { rows } = await pool.query('SELECT role FROM users WHERE username = $1', [req.params.username]);
   if (!rows.length) return res.status(404).json({ error: 'User does not exist.' });
   if (rows[0].role !== 'narucilac') return res.status(400).json({ error: 'This permission only applies to Requester accounts.' });
@@ -747,6 +752,10 @@ app.patch('/api/users/:username/permissions', requireAuth, requireRole('admin'),
   }
   if (canTrackOwnOrders !== undefined) {
     await pool.query('UPDATE users SET can_track_own_orders = $1 WHERE username = $2', [!!canTrackOwnOrders, req.params.username]);
+  }
+  if (location !== undefined) {
+    if (!['SOHO', 'MEPA'].includes(location)) return res.status(400).json({ error: 'Invalid location.' });
+    await pool.query('UPDATE users SET location = $1 WHERE username = $2', [location, req.params.username]);
   }
   res.json({ ok: true });
 });
